@@ -1,0 +1,70 @@
+{
+  "name": "codedesk",
+  "version": "0.1.0",
+  "description": "Codedesk: a desktop workspace for Claude Code",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "npx --yes electron-builder"
+  },
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.296",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/newsreader": "^5.3.0",
+    "@highlightjs/cdn-assets": "^11.12.0",
+    "@phosphor-icons/web": "^2.1.2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "dompurify": "^3.4.17",
+    "katex": "^0.18.10",
+    "marked": "^18.1.1",
+    "marked-katex-extension": "^5.1.13"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  },
+  "productName": "Codedesk",
+  "build": {
+    "appId": "dev.claudecodegui.app",
+    "asar": false,
+    "files": [
+      "main.mjs",
+      "preload.cjs",
+      "ui/**",
+      "build/icon.*",
+      "vendor/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Development",
+      "executableName": "codedesk",
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false
+    }
+  }
+}

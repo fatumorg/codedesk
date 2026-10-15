@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: file:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src file: http: https:; connect-src 'self'">
+  <title>Codedesk</title>
+  <link rel="stylesheet" href="../node_modules/@fontsource-variable/geist/index.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource-variable/geist-mono/index.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource-variable/newsreader/opsz.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource-variable/newsreader/opsz-italic.css">
+  <link rel="stylesheet" href="../node_modules/@phosphor-icons/web/src/bold/style.css">
+  <link rel="stylesheet" href="../node_modules/@phosphor-icons/web/src/fill/style.css">
+  <link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="side-top">
+        <div class="brand"><img src="../build/icon.svg" alt=""><span>Codedesk</span></div>
+        <button class="icon" id="hide-sidebar" title="Hide sidebar (Ctrl+B)" aria-label="Hide sidebar"><i class="ph-bold ph-sidebar-simple"></i></button>
+      </div>
+      <button id="new-chat" class="primary block"><i class="ph-bold ph-plus"></i><span>New conversation</span></button>
+      <button id="project-switch" class="project-switch" title="Switch project">
+        <i class="ph-bold ph-folder"></i><span id="project-name">Choose a project</span><i class="ph-bold ph-caret-down"></i>
+      </button>
+      <label class="search"><i class="ph-bold ph-magnifying-glass"></i><input id="session-search" placeholder="Search conversations" spellcheck="false"></label>
+      <nav id="sessions" aria-label="Conversations"></nav>
+      <div class="side-bottom">
+        <button id="account" class="account"><i class="ph-bold ph-user"></i><span id="account-name">Account</span></button>
+        <button class="icon" id="open-usage" title="Usage and limits" aria-label="Usage and limits"><i class="ph-bold ph-gauge"></i></button>
+        <button class="icon" id="open-settings" title="Settings (Ctrl+,)" aria-label="Settings"><i class="ph-bold ph-gear"></i></button>
+      </div>
+    </aside>
+
+    <main id="main">
+      <div id="tabbar">
+        <button class="icon" id="show-sidebar" title="Show sidebar (Ctrl+B)" aria-label="Show sidebar"><i class="ph-bold ph-sidebar-simple"></i></button>
+        <div id="tabs" role="tablist"></div>
+        <button class="icon" id="new-tab" title="New tab (Ctrl+T)" aria-label="New tab"><i class="ph-bold ph-plus"></i></button>
+        <div class="spacer"></div>
+        <button class="icon" id="open-palette" title="Command palette (Ctrl+K)" aria-label="Command palette"><i class="ph-bold ph-command"></i></button>
+        <button class="icon" id="toggle-terminal" title="Terminal (Ctrl+`)" aria-label="Terminal"><i class="ph-bold ph-terminal-window"></i></button>
+        <button class="icon" id="toggle-panel" title="Toggle panel (Ctrl+J)" aria-label="Toggle panel"><i class="ph-bold ph-sidebar-simple flip"></i></button>
+      </div>
+
+      <div id="chat-head">
+        <button id="chat-title" class="ghost" title="Rename"></button>
+        <span class="spacer"></span>
+        <span id="chat-branch" class="pill" hidden></span>
+        <button id="chat-path" class="ghost path"></button>
+      </div>
+
+      <div id="chat">
+        <div id="welcome">
+          <img class="welcome-mark" src="../build/icon.svg" alt="">
+          <h1 class="serif">Codedesk</h1>
+          <p class="muted">A desktop workspace for Claude Code. Pick a project folder. Claude reads, edits and runs code in it, with your permission.</p>
+          <div class="row center"><button id="welcome-open" class="primary"><i class="ph-bold ph-folder-open"></i><span>Open folder</span></button></div>
+          <div class="label">Recent projects</div>
+          <div id="recent" class="recent-grid"></div>
+          <div class="label">Shortcuts</div>
+          <div class="shortcuts">
+            <span><kbd>Enter</kbd> send</span><span><kbd>Shift</kbd><kbd>Enter</kbd> new line</span>
+            <span><kbd>Esc</kbd> stop</span><span><kbd>Shift</kbd><kbd>Tab</kbd> permission mode</span>
+            <span><kbd>/</kbd> commands</span><span><kbd>@</kbd> mention files</span>
+            <span><kbd>!</kbd> run shell</span><span><kbd>#</kbd> save memory</span>
+            <span><kbd>Ctrl</kbd><kbd>K</kbd> command palette</span><span><kbd>Ctrl</kbd><kbd>T</kbd> new tab</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="findbar" hidden>
+        <i class="ph-bold ph-magnifying-glass"></i><input id="find-input" placeholder="Find in conversation"><span id="find-count" class="muted small"></span>
+        <button class="icon" id="find-prev" aria-label="Previous"><i class="ph-bold ph-caret-up"></i></button>
+        <button class="icon" id="find-next" aria-label="Next"><i class="ph-bold ph-caret-down"></i></button>
+        <button class="icon" id="find-close" aria-label="Close"><i class="ph-bold ph-x"></i></button>
+      </div>
+
+      <div id="dock">
+        <div id="todo-strip" hidden></div>
+        <div id="suggest" hidden role="listbox"></div>
+        <div id="composer">
+          <div id="attachments"></div>
+          <textarea id="input" rows="1" placeholder="Ask Claude to build, fix or explain something" spellcheck="true"></textarea>
+          <div class="composer-bar">
+            <button class="icon" id="attach" title="Attach images, PDFs or files" aria-label="Attach"><i class="ph-bold ph-paperclip"></i></button>
+            <button class="icon" id="mention" title="Mention a file (@)" aria-label="Mention a file"><i class="ph-bold ph-at"></i></button>
+            <button class="icon" id="slash" title="Commands (/)" aria-label="Commands"><i class="ph-bold ph-command"></i></button>
+            <button class="chip" id="mode-chip"></button>
+            <span class="spacer"></span>
+            <button class="chip" id="fast-chip" hidden title="Fast mode"><i class="ph-bold ph-lightning"></i><span>Fast</span></button>
+            <button class="chip" id="effort-chip" title="Reasoning effort"></button>
+            <button class="chip" id="model-chip" title="Model"></button>
+            <button id="send" class="primary send" title="Send (Enter)" aria-label="Send"><i class="ph-bold ph-arrow-up"></i></button>
+            <button id="stop" class="send stop" title="Stop (Esc)" aria-label="Stop" hidden><i class="ph-fill ph-stop"></i></button>
+          </div>
+        </div>
+        <div id="statusbar">
+          <span id="st-mode"></span><span id="st-msg"></span><span id="st-line" class="clip"></span>
+          <span class="spacer"></span>
+          <button id="st-usage" class="ghost" title="Plan usage and limits" hidden></button>
+          <button id="st-ctx" class="ghost" title="Context window usage"></button>
+          <span id="st-cost"></span>
+        </div>
+      </div>
+    </main>
+
+    <div id="panel-resize"></div>
+    <aside id="panel">
+      <div id="panel-tabs"></div>
+      <div id="panel-bar"><span id="panel-title"></span><span class="spacer"></span><span id="panel-actions"></span>
+        <button class="icon" id="close-panel" title="Close panel" aria-label="Close panel"><i class="ph-bold ph-x"></i></button></div>
+      <div id="panel-body"></div>
+    </aside>
+  </div>
+  <div id="drop-overlay" hidden><div><i class="ph-bold ph-paperclip"></i><span>Drop images, PDFs or files</span></div></div>
+  <div id="toasts"></div>
+  <input type="file" id="file" multiple hidden>
+
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="../node_modules/katex/dist/katex.min.js"></script>
+  <script src="../node_modules/marked-katex-extension/lib/index.umd.js"></script>
+  <script src="../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <script src="lib.js"></script>
+  <script src="chat.js"></script>
+  <script src="panels.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
