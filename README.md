@@ -26,6 +26,9 @@ You need Claude Code installed and signed in (`claude auth login`), or use the a
 - **Controls:** permission mode (Shift+Tab), model (newest first, older versions under "More models"),
   an effort slider from Low to Max plus Ultracode, fast mode, stop (Esc), Esc Esc to rewind.
   New conversations start in Auto mode, Medium effort, Opus 5.5 (change under Settings).
+- **Gemini:** pick a Gemini model to run the tab through the Antigravity CLI (`agy`) with your Google sign-in.
+  Install `agy`, then sign in from Settings → Antigravity. The model list comes from `agy models`. Permission
+  modes map to agy's (Ask behaves like Accept edits), and Gemini tabs have no fork or rewind.
 - **Review:** inline diffs with line numbers, permission prompts (keys 1/2/3), plan approval,
   Claude's multiple-choice questions, to-do progress, subagent and background-task output.
 - **Undo:** edit or retry any message (forks the conversation), rewind code to before a message.

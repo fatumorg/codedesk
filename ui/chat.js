@@ -72,11 +72,12 @@ class Tab {
     this.title = 'New conversation'
     this.setBusy(false)
     if (sessionId && history) {
+      const info = (await api.listSessions(this.cwd)).find(s => s.sessionId === sessionId)
+      if (info?.model) this.model = info.model
       const msgs = await api.history(sessionId, this.cwd)
       this.loadingHistory = true
       for (const m of msgs) this.handle({ ...m, history: true })
       this.loadingHistory = false
-      const info = (await api.listSessions(this.cwd)).find(s => s.sessionId === sessionId)
       if (info) this.title = info.customTitle || info.summary || info.firstPrompt || this.title
     }
     this.renderEmpty()
@@ -396,17 +397,20 @@ class Tab {
     d.text = text
     if (uuid) this.lastUuid = uuid
     const row = el('div', 'user-row', d)
+    const full = !/^gemini/i.test(this.model || '')
     row.append(el('div', 'actions',
       iconButton('copy', 'Copy', e => copy(text, e.currentTarget)),
-      iconButton('pencil-simple', 'Edit and resend from here', () => this.rewind(d, 'edit')),
-      iconButton('arrows-clockwise', 'Retry from here', () => this.rewind(d, 'retry')),
-      iconButton('clock-counter-clockwise', 'Rewind', e => menu(e.currentTarget, [
-        { label: 'Restore conversation to before this', icon: 'chats', run: () => this.rewind(d, 'conversation') },
-        { label: 'Restore code to before this', icon: 'code', run: () => this.rewind(d, 'code') },
-        { label: 'Restore both', icon: 'arrow-counter-clockwise', run: () => this.rewind(d, 'both') },
-        '-',
-        { label: 'Fork into new tab from here', icon: 'git-fork', run: () => this.rewind(d, 'fork') },
-      ]))))
+      ...(full ? [
+        iconButton('pencil-simple', 'Edit and resend from here', () => this.rewind(d, 'edit')),
+        iconButton('arrows-clockwise', 'Retry from here', () => this.rewind(d, 'retry')),
+        iconButton('clock-counter-clockwise', 'Rewind', e => menu(e.currentTarget, [
+          { label: 'Restore conversation to before this', icon: 'chats', run: () => this.rewind(d, 'conversation') },
+          { label: 'Restore code to before this', icon: 'code', run: () => this.rewind(d, 'code') },
+          { label: 'Restore both', icon: 'arrow-counter-clockwise', run: () => this.rewind(d, 'both') },
+          '-',
+          { label: 'Fork into new tab from here', icon: 'git-fork', run: () => this.rewind(d, 'fork') },
+        ])),
+      ] : [])))
     this.add(row)
   }
 

@@ -1,6 +1,4 @@
 const input = $('#input')
-settings.googleMode ||= 'web'
-settings.googleApiKey ||= ''
 
 const App = {
   tabs: new Map(),
@@ -70,7 +68,7 @@ const App = {
     $('#chat-path').textContent = tab.cwd ? tab.cwd.replace(App.info.home, '~') : ''
     $('#chat-path').title = tab.cwd || ''
     document.title = tab.cwd ? `${tab.title} ·${tab.name}` : 'Codedesk'
-    const agentName = /^gemini/i.test(tab.model || '') ? 'Gemini 4 Argon' : 'Claude'
+    const agentName = /^gemini/i.test(tab.model || '') ? modelInfo(tab).label : 'Claude'
     input.placeholder = tab.suggestion ? `${tab.suggestion}   (Tab to use)` : `Ask ${agentName} to build, fix or explain something`
     $('#send').hidden = tab.busy && !input.value.trim()
     $('#stop').hidden = !tab.busy || !!input.value.trim()
@@ -176,8 +174,8 @@ const App = {
     new: { description: 'Start a new conversation in this tab', run: t => t.open(null) },
     resume: { description: 'Find a past conversation', run: () => { saveSettings({ sidebar: true }); $('#session-search').focus() } },
     model: { description: 'Choose the model', run: () => $('#model-chip').click() },
-    argon: { description: 'Switch to Gemini 4 Argon (Google AI Pro)', run: t => { setModel(t, 'gemini-4-argon'); toast('Switched to Gemini 4 Argon') } },
-    google: { description: 'Open Google AI Pro & Gemini 4 Argon settings', run: () => openSettings('google') },
+    gemini: { description: 'Switch to Gemini (Antigravity)', run: t => useGemini(t) },
+    google: { description: 'Antigravity and Gemini settings', run: () => openSettings('google') },
     permissions: { description: 'Choose the permission mode', run: () => $('#mode-chip').click() },
     config: { description: 'Open settings', run: () => openSettings() },
     settings: { description: 'Open settings', run: () => openSettings() },
@@ -211,6 +209,7 @@ const App = {
       { label: 'Personal memory (~/.claude/CLAUDE.md)', icon: 'user', run: () => App.openFile(join(App.info.home, '.claude/CLAUDE.md')) },
     ]) },
     rewind: { description: 'Restore conversation or code to an earlier point', run: t => {
+      if (/^gemini/i.test(t.model || '')) return toast('Not available for Gemini')
       const last = $$('.user', t.messages).pop()
       if (!last) return toast('Nothing to rewind')
       last.closest('.user-row').querySelector('[aria-label="Rewind"]').click()
@@ -223,11 +222,6 @@ const App = {
     if (c) { c.run(this.active, args); return true }
     return false
   },
-}
-
-const origStart = Tab.prototype.start
-Tab.prototype.start = async function (extra = {}) {
-  return origStart.call(this, { googleMode: settings.googleMode, googleApiKey: settings.googleApiKey, ...extra })
 }
 
 function autosize() {
@@ -401,19 +395,13 @@ input.addEventListener('keydown', e => {
 })
 input.addEventListener('paste', e => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles([...e.clipboardData.files]) } })
 
-const GOOGLE_MODELS = [
-  { value: 'gemini-4-argon', description: 'Gemini 4 Argon · Google AI Pro local repo agent (1M context)', supportsFastMode: false, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  { value: 'gemini-3.5-flash', description: 'Gemini 3.5 Flash · High-speed multimodal Google agent', supportsFastMode: true, supportedEffortLevels: ['low', 'medium', 'high'] },
-]
 const FALLBACK_MODELS = [
-  ...GOOGLE_MODELS,
   { value: 'opus', description: 'Opus 5.5 · Best for everyday, complex tasks', supportsFastMode: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'claude-fable-5-1[1m]', description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'sonnet', description: 'Sonnet 5 · Efficient for routine tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'haiku', description: 'Haiku 4.5 · Fastest for quick answers', supportsEffort: false },
 ]
 const MORE_MODELS = [
-  ['gemini-4-argon', 'Gemini 4 Argon'], ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
   ['claude-fable-5', 'Fable 5'], ['claude-opus-5', 'Opus 5'], ['claude-opus-4-8', 'Opus 4.8'], ['claude-opus-4-7', 'Opus 4.7'],
   ['claude-opus-4-6', 'Opus 4.6'], ['claude-opus-4-5', 'Opus 4.5'], ['claude-sonnet-4-6', 'Sonnet 4.6'], ['claude-sonnet-4-5', 'Sonnet 4.5'],
   ['claude-opus-4-0', 'Opus 4'], ['claude-sonnet-4-0', 'Sonnet 4'],
@@ -421,7 +409,7 @@ const MORE_MODELS = [
 function mainModels(tab) {
   const raw = tab?.meta.models.length ? tab.meta.models : FALLBACK_MODELS
   const seen = new Set()
-  const list = [...GOOGLE_MODELS, ...raw].filter(m => m.value !== 'default' && !seen.has(m.value) && seen.add(m.value))
+  const list = [...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !seen.has(m.value) && seen.add(m.value))
   return list.map(m => {
     const [name, ...rest] = (m.description || '').split(' · ')
     return { ...m, label: name || m.displayName || m.value, detail: rest.join(' · ') }
@@ -596,7 +584,7 @@ function sessionMenu(anchor, s, title) {
       const t = await prompt('Rename conversation', title)
       if (t) { await api.renameSession(s.sessionId, t, cwd); App.refreshSessions(); for (const tab of App.tabs.values()) if (tab.sessionId === s.sessionId) { tab.title = t; App.tabChanged(tab) } }
     } },
-    { label: 'Fork (duplicate)', icon: 'git-fork', run: async () => { const r = await api.forkSession(s.sessionId, cwd); App.openProject(cwd, r.sessionId, { newTab: true }) } },
+    ...(/^gemini/i.test(s.model || '') ? [] : [{ label: 'Fork (duplicate)', icon: 'git-fork', run: async () => { const r = await api.forkSession(s.sessionId, cwd); App.openProject(cwd, r.sessionId, { newTab: true }) } }]),
     { label: 'Export as Markdown', icon: 'export', run: async () => { const t = new Tab(cwd); t.sessionId = s.sessionId; t.title = title; await t.exportMarkdown() } },
     '-',
     { label: 'Delete', icon: 'trash', danger: true, run: async () => {
@@ -742,6 +730,18 @@ async function openUsage(tab = App.active) {
 $('#open-usage').onclick = () => openUsage()
 $('#st-usage').onclick = () => openUsage()
 
+function signInAgy() {
+  if (!App.info.agyPath) return toast('Install the Antigravity CLI first: curl -fsSL https://antigravity.google/cli/install.sh | bash', 'err')
+  Terminals.run(App.active, JSON.stringify(App.info.agyPath))
+  toast('Finish signing in to Google in the terminal, then press Refresh in Antigravity settings')
+}
+function useGemini(tab) {
+  const m = App.google?.models?.[0]?.value
+  if (!m) return toast(App.info.agyPath ? 'Sign in to Antigravity first' : 'Install the Antigravity CLI first', 'err')
+  setModel(tab, m)
+  toast('Switched to ' + modelInfo(tab, m).label)
+}
+
 async function loadAccount() {
   const [r, g] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({}))])
   let s = {}
@@ -750,7 +750,7 @@ async function loadAccount() {
   App.google = g || {}
   const label = s.loggedIn
     ? (s.email || s.account?.email || (s.authMethod === 'claude.ai' ? 'Claude account' : s.authMethod))
-    : g?.loggedIn ? 'Google AI Pro' : 'Sign in'
+    : g?.loggedIn ? 'Antigravity' : 'Sign in'
   $('#account-name').textContent = label
 }
 $('#account').onclick = e => {
@@ -763,10 +763,10 @@ $('#account').onclick = e => {
       { label: 'Sign out of Claude', icon: 'sign-out', run: () => App.runCommand('logout') },
     ] : [{ label: 'Sign in to Claude', icon: 'sign-in', run: async () => { toast('Finish signing in in your browser'); await api.cli(['auth', 'login']); loadAccount() } }]),
     '-',
-    { header: `Google AI Pro · ${g.loggedIn ? 'Signed in' : 'Not signed in'}` },
-    { label: g.loggedIn ? 'Open Gemini 4 Argon Web Window' : 'Sign in to Google AI Pro (Argon)', icon: 'sparkle', run: async () => { await api.googleLogin(); await loadAccount(); toast('Google AI Pro ready') } },
-    { label: 'Use Gemini 4 Argon in this tab', icon: 'cpu', run: () => setModel(App.active, 'gemini-4-argon') },
-    { label: 'Google AI Pro Settings', icon: 'gear', run: () => openSettings('google') },
+    { header: `Antigravity · ${!g.installed ? 'Not installed' : g.loggedIn ? 'Signed in' : 'Not signed in'}` },
+    ...(g.loggedIn ? [] : [{ label: 'Sign in with Google (Antigravity)', icon: 'sign-in', run: signInAgy }]),
+    { label: 'Use Gemini in this tab', icon: 'cpu', run: () => useGemini(App.active) },
+    { label: 'Antigravity Settings', icon: 'gear', run: () => openSettings('google') },
   ])
 }
 
@@ -796,8 +796,8 @@ function openPalette() {
   const inputEl = el('input', 'field'); inputEl.placeholder = 'Type a command, conversation or project'
   const list = el('div', 'palette-list')
   const actions = [
-    ['Use Gemini 4 Argon (Google AI Pro)', 'sparkle', () => setModel(tab, 'gemini-4-argon')],
-    ['Google AI Pro Settings', 'gear', () => openSettings('google')],
+    ['Use Gemini (Antigravity)', 'sparkle', () => useGemini(tab)],
+    ['Antigravity Settings', 'gear', () => openSettings('google')],
     ['New tab', 'plus', () => App.newTab(null), 'Ctrl T'],
     ['New conversation', 'chat-circle', () => tab.cwd ? tab.open(null) : App.pickFolder()],
     ['Open folder…', 'folder-open', () => App.pickFolder(), 'Ctrl O'],
@@ -911,10 +911,6 @@ function openSettings(section = 'appearance') {
   Object.assign(editor, { value: settings.editor, placeholder: 'code, cursor, zed, subl, or empty for the system default' })
   editor.onchange = () => saveSettings({ editor: editor.value.trim() })
 
-  const gKey = el('input', 'field mono')
-  Object.assign(gKey, { type: 'password', value: settings.googleApiKey || '', placeholder: 'AIzaSy... (optional if using Google AI Pro Web Bridge)' })
-  gKey.onchange = () => { saveSettings({ googleApiKey: gKey.value.trim() }); if (tab?.live && /^gemini/i.test(tab.model)) tab.start() }
-
   const sections = {
     appearance: ['Appearance', 'palette', () => [
       row('Theme', segmented('theme', [['system', 'System', 'circle-half'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], () => { pane.replaceChildren(...sections.appearance[2]()) })),
@@ -942,25 +938,16 @@ function openSettings(section = 'appearance') {
       row('Model', select('defaultModel', [...models, { group: 'More models', items: MORE_MODELS }])),
       row('Reasoning effort', select('defaultEffort', EFFORTS.map(l => [l.value, l.label]))),
     ]],
-    google: ['Google AI Pro', 'sparkle', () => [
+    google: ['Antigravity', 'sparkle', () => [
       el('div', 'kv',
-        el('span', '', 'Google AI Pro Web Session'), el('span', '', App.google?.loggedIn ? 'Signed in (gemini.google.com)' : 'Not signed in'),
-        el('span', '', 'Active Model'), el('span', 'mono', 'gemini-4-argon'),
-        el('span', '', 'Local Repo Tools'), el('span', '', 'Read, Write, Edit, MultiEdit, Bash, Glob, Grep, TodoWrite')),
-      row('Connection mode', segmented('googleMode', [
-        ['web', 'Google AI Pro Web (No Ultra)', 'globe'],
-        ['api', 'Gemini API Key', 'key'],
-      ], () => { if (tab?.live && /^gemini/i.test(tab.model)) tab.start() }),
-      'Google AI Pro Web uses your Google AI Pro subscription on gemini.google.com with local repo tools so you can use Gemini 4 Argon without Google AI Ultra.'),
-      row('Gemini API Key (AI Studio)', gKey, 'Optional: used when Connection mode is set to Gemini API Key.'),
+        el('span', '', 'Antigravity CLI'), el('span', 'mono', App.info.agyPath || 'Not installed'),
+        el('span', '', 'Google account'), el('span', '', App.google?.loggedIn ? 'Signed in' : 'Not signed in'),
+        el('span', '', 'Models'), el('span', 'mono', (App.google?.models || []).map(x => x.value).join(', ') || 'None')),
+      ...(App.info.agyPath ? [] : [row('Install', el('code', 'mono', 'curl -fsSL https://antigravity.google/cli/install.sh | bash'), 'Restart Codedesk after installing.')]),
       el('div', 'row wrap',
-        button('Sign in / Open Gemini Web (Select Argon)', async () => {
-          await api.googleLogin()
-          await loadAccount()
-          show('google')
-        }, 'primary', 'sign-in'),
-        button('Use Gemini 4 Argon now', () => { setModel(tab, 'gemini-4-argon'); m.close(); toast('Active model: Gemini 4 Argon') }, '', 'sparkle'),
-        App.google?.loggedIn ? button('Sign out of Google', async () => { await api.googleLogout(); await loadAccount(); show('google') }, 'ghost', 'sign-out') : null),
+        App.google?.loggedIn ? null : button('Sign in with Google', () => { m.close(); signInAgy() }, 'primary', 'sign-in'),
+        button('Refresh', async () => { await loadAccount(); show('google') }, 'ghost', 'arrows-clockwise'),
+        button('Use Gemini now', () => { m.close(); useGemini(tab) }, '', 'sparkle')),
     ]],
     claude: ['Claude Code', 'terminal', () => [
       el('div', 'kv',

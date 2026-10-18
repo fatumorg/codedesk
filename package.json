@@ -5,7 +5,8 @@
   "main": "main.mjs",
   "scripts": {
     "start": "electron .",
-    "dist": "npx --yes electron-builder"
+    "dist": "npx --yes electron-builder",
+    "test": "node --test test/*.test.mjs"
   },
   "license": "MIT",
   "type": "module",
@@ -32,6 +33,7 @@
     "asar": false,
     "files": [
       "main.mjs",
+      "agy.mjs",
       "preload.cjs",
       "ui/**",
       "build/icon.*",
