@@ -29,7 +29,7 @@
             version = lock.version;
             src = lib.fileset.toSource {
               root = ./.;
-              fileset = lib.fileset.unions [ ./main.mjs ./preload.cjs ./ui ./build ./vendor ./package.json ];
+              fileset = lib.fileset.unions [ ./main.mjs ./agy.mjs ./preload.cjs ./ui ./build ./vendor ./package.json ];
             };
             nativeBuildInputs = [ pkgs.makeWrapper ];
             installPhase = ''
