@@ -396,23 +396,23 @@ input.addEventListener('keydown', e => {
 input.addEventListener('paste', e => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles([...e.clipboardData.files]) } })
 
 const FALLBACK_MODELS = [
-  { value: 'opus', description: 'Opus 5.5 · Best for everyday, complex tasks', supportsFastMode: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  { value: 'opus', description: 'Opus 5.5 · For complex work and everyday tasks', supportsFastMode: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'claude-fable-5-1[1m]', description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  { value: 'sonnet', description: 'Sonnet 5 · Efficient for routine tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  { value: 'haiku', description: 'Haiku 4.5 · Fastest for quick answers', supportsEffort: false },
+  { value: 'sonnet', description: 'Sonnet 5.5 · Most efficient for simpler tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  { value: 'haiku', description: 'Haiku 5.5 · Fastest for quick answers', supportsEffort: false },
 ]
 const MORE_MODELS = [
-  ['claude-fable-5', 'Fable 5'], ['claude-opus-5', 'Opus 5'], ['claude-opus-4-8', 'Opus 4.8'], ['claude-opus-4-7', 'Opus 4.7'],
+  ['claude-fable-5', 'Fable 5'], ['claude-sonnet-5', 'Sonnet 5'], ['claude-haiku-4-5-20251001', 'Haiku 4.5'], ['claude-opus-5', 'Opus 5'], ['claude-opus-4-8', 'Opus 4.8'], ['claude-opus-4-7', 'Opus 4.7'],
   ['claude-opus-4-6', 'Opus 4.6'], ['claude-opus-4-5', 'Opus 4.5'], ['claude-sonnet-4-6', 'Sonnet 4.6'], ['claude-sonnet-4-5', 'Sonnet 4.5'],
   ['claude-opus-4-0', 'Opus 4'], ['claude-sonnet-4-0', 'Sonnet 4'],
 ]
 function mainModels(tab) {
   const raw = tab?.meta.models.length ? tab.meta.models : FALLBACK_MODELS
   const seen = new Set()
-  const list = [...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !seen.has(m.value) && seen.add(m.value))
+  const list = [...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !MORE_MODELS.some(([id]) => id === m.value) && !seen.has(m.value) && seen.add(m.value))
   return list.map(m => {
     const [name, ...rest] = (m.description || '').split(' · ')
-    return { ...m, label: name || m.displayName || m.value, detail: rest.join(' · ') }
+    return { ...m, label: m.displayName || name || m.value, detail: rest.length ? rest.join(' · ') : m.displayName ? m.description || '' : '' }
   })
 }
 function modelInfo(tab, value = tab.model) {
@@ -1030,7 +1030,7 @@ api.on('claude:meta', ({ tab, commands, models, agents }) => {
   const t = App.tabs.get(tab)
   if (!t) return
   Object.assign(t.meta, { commands, models, agents })
-  if (models?.length) localStorage.setItem('models', JSON.stringify(models))
+  if (models?.some(m => !/^gemini/i.test(m.value))) localStorage.setItem('models', JSON.stringify(models))
   Panels.refresh('agents')
   App.tabChanged(t)
 })
