@@ -65,8 +65,8 @@ const App = {
     document.body.classList.toggle('no-project', !tab.cwd)
     $('#project-name').textContent = tab.cwd ? basename(tab.cwd) : 'Choose a project'
     $('#chat-title').textContent = tab.cwd ? tab.title : ''
-    $('#chat-path').textContent = tab.cwd ? tab.cwd.replace(App.info.home, '~') : ''
-    $('#chat-path').title = tab.cwd || ''
+    $('#chat-path').textContent = tab.cwd ? tab.cwd.replace(App.info.home, '~') + (tab.addDirs.length ? ` +${tab.addDirs.length}` : '') : ''
+    $('#chat-path').title = [tab.cwd, ...tab.addDirs].filter(Boolean).join('\n')
     document.title = tab.cwd ? `${tab.title} ·${tab.name}` : 'Codedesk'
     const agentName = /^gemini/i.test(tab.model || '') ? modelInfo(tab).label : 'Claude'
     input.placeholder = tab.suggestion ? `${tab.suggestion}   (Tab to use)` : `Ask ${agentName} to build, fix or explain something`
@@ -117,7 +117,7 @@ const App = {
     renderSessions()
   }, 150),
 
-  relPath(tab, full) { return tab.cwd && full.startsWith(tab.cwd) ? full.slice(tab.cwd.length + 1) : full },
+  relPath(tab, full) { return tab.cwd && full?.startsWith(tab.cwd) && /[\\/]/.test(full[tab.cwd.length]) ? full.slice(tab.cwd.length + 1) : full },
 
   async projectFiles(tab) {
     const c = this.fileCache.get(tab.cwd)
@@ -212,10 +212,11 @@ const App = {
     exit: { description: 'Close this tab', run: t => App.closeTab(t) },
     'add-dir': { description: 'Give agent access to another folder', run: async t => {
       const d = await api.pickFolder()
-      if (!d) return
-      t.addDirs.push(d)
-      await t.start()
-      toast(`Added ${d}`)
+      if (!t.cwd || !d || d === t.cwd || t.addDirs.includes(d)) return
+      t.addDirs = [...t.addDirs, d]
+      App.tabChanged(t)
+      if (t.live) await t.start()
+      toast(`Added ${d} to this workspace`)
     } },
     memory: { description: 'Open a CLAUDE.md memory file', run: t => menu($('#slash'), [
       { label: 'Project memory (CLAUDE.md)', icon: 'file-text', run: () => App.openFile(join(t.cwd, 'CLAUDE.md')) },
@@ -504,6 +505,7 @@ $('#effort-chip').onclick = e => {
     return b
   }))
   const box = el('div', 'effort-pop', el('div', 'effort-top', name, hint), el('div', 'effort-track', range), ticks)
+  box.style.setProperty('--n', levels.length)
   function update(commit) {
     const k = +range.value, l = levels[k]
     name.textContent = l.label
@@ -812,8 +814,16 @@ $('#chat-path').onclick = e => {
     { label: 'Open in file manager', icon: 'folder-open', run: () => api.openPath(tab.cwd) },
     { label: 'Open terminal here', icon: 'terminal-window', run: () => Panels.show('terminal') },
     { label: 'Copy path', icon: 'copy', run: () => copy(tab.cwd) },
-    { label: 'Add another folder…', icon: 'plus', run: () => App.runCommand('add-dir') },
-    ...tab.addDirs.map(d => ({ label: 'Also: ' + d, icon: 'folder', run: () => api.openPath(d) })),
+    { label: 'Add folder to workspace…', icon: 'plus', run: () => App.runCommand('add-dir') },
+    ...(tab.addDirs.length ? ['-', { header: 'Workspace folders' }] : []),
+    ...tab.addDirs.map(d => ({ label: basename(d), detail: d.replace(App.info.home, '~'), icon: 'folder', more: [
+      { label: 'Open in file manager', icon: 'folder-open', run: () => api.openPath(d) },
+      { label: 'Remove from workspace', icon: 'x', danger: true, run: async () => {
+        tab.addDirs = tab.addDirs.filter(x => x !== d)
+        App.tabChanged(tab)
+        if (tab.live) await tab.start()
+      } },
+    ] })),
   ])
 }
 

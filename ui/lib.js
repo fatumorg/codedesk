@@ -47,7 +47,7 @@ const DEFAULTS = {
   density: 'comfortable', radius: 'soft', fontSize: 14, chatWidth: 780, motion: true, customCss: '',
   showThinking: true, expandTools: false, sounds: false, enterSends: true, notifications: true, autoContinue: true, editor: 'code',
   defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium',
-  panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], v: 2,
+  panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], workspaces: {}, v: 2,
 }
 const ACCENTS = {
   terracotta: ['Terracotta', '#c96442', '#d97757'], ocean: ['Ocean', '#2f6fb0', '#6aa6e8'], forest: ['Forest', '#3d7a4f', '#74b98a'],

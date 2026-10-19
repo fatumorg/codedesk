@@ -37,7 +37,6 @@ class Tab {
     this.mode = settings.defaultMode
     this.effort = settings.defaultEffort
     this.fast = false
-    this.addDirs = []
     this.tools = new Map()
     this.changes = new Map()
     this.tasks = new Map()
@@ -83,6 +82,13 @@ class Tab {
     this.renderEmpty()
     App.tabChanged(this)
     this.scroll(true)
+  }
+
+  get addDirs() { return settings.workspaces[this.cwd] || [] }
+
+  set addDirs(dirs) {
+    const { [this.cwd]: _, ...rest } = settings.workspaces
+    saveSettings({ workspaces: dirs.length ? { ...rest, [this.cwd]: dirs } : rest })
   }
 
   async start(extra = {}) {
@@ -545,7 +551,7 @@ class Tab {
   }
 
   toolSummary(name, i) {
-    const rel = p => (this.cwd && p?.startsWith(this.cwd) ? p.slice(this.cwd.length + 1) : p)
+    const rel = p => App.relPath(this, p)
     switch (name) {
       case 'Bash': return i.description || i.command
       case 'Read': return rel(i.file_path) + (i.offset ? ` (from line ${i.offset})` : '')
