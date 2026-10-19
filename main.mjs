@@ -161,6 +161,7 @@ async function startGeminiSession(wc, tab, opts) {
 
 function startSession(wc, tab, opts) {
   const { cwd, resume, model, permissionMode, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
+  if (!existsSync(cwd)) return wc.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
   if (isGemini(model)) return startGeminiSession(wc, tab, opts)
   const k = `${wc.id}:${tab}`
   stopSession(k)
