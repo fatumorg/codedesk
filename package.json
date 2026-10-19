@@ -29,7 +29,7 @@
   },
   "productName": "Codedesk",
   "build": {
-    "appId": "dev.claudecodegui.app",
+    "appId": "dev.codedesk.app",
     "asar": false,
     "files": [
       "main.mjs",

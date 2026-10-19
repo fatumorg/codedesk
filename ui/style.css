@@ -585,3 +585,16 @@ details.tool { border: 1px solid var(--border); border-radius: calc(10px * var(-
   .tab { min-width: 80px; }
   #welcome h1 { font-size: 34px; }
 }
+
+#to-bottom { position: absolute; top: -48px; left: 50%; transform: translateX(-50%); width: 34px; height: 34px; margin: 0; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 14px rgb(0 0 0 / .18); z-index: 5; }
+#to-bottom.busy { color: var(--accent); border-color: var(--accent); }
+.timer { font-variant-numeric: tabular-nums; }
+.editor { position: relative; flex: 1; min-height: 240px; border: 1px solid var(--border); border-radius: calc(8px * var(--rk)); overflow: hidden; background: var(--code-bg); }
+.editor > * { position: absolute; inset: 0; margin: 0; font: 12.5px/1.55 var(--mono); tab-size: 2; white-space: pre; }
+.editor .editor-hl { border: 0; border-radius: 0; overflow: hidden; pointer-events: none; }
+.editor .editor-hl .cl::before { width: 3.6em; padding-right: 12px; box-sizing: border-box; }
+.editor-input { width: 100%; height: 100%; padding: 10px 14px 10px 3.6em; border: 0; outline: 0; resize: none; overflow: auto; background: transparent; color: transparent; caret-color: var(--fg); }
+.editor-input::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: transparent; }
+.editor.plain .editor-hl { display: none; }
+.editor.plain .editor-input { color: var(--fg); padding-left: 14px; }
+.editor-wrap { flex: 1; min-height: 0; }

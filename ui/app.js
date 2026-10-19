@@ -72,6 +72,7 @@ const App = {
     input.placeholder = tab.suggestion ? `${tab.suggestion}   (Tab to use)` : `Ask ${agentName} to build, fix or explain something`
     $('#send').hidden = tab.busy && !input.value.trim()
     $('#stop').hidden = !tab.busy || !!input.value.trim()
+    $('#to-bottom').classList.toggle('busy', tab.busy)
     renderChips(tab)
     renderStatus(tab)
     renderTodoStrip(tab)
@@ -142,6 +143,7 @@ const App = {
   },
 
   async preview(state) {
+    if (!await Panels.canLeave()) return
     if (state.html && !state.url && !state.file) state.fileUrl = await api.writeTemp(state.html)
     Panels.previewState = state
     Panels.show('preview')
@@ -149,10 +151,11 @@ const App = {
 
   openInEditor(file, line) { api.openInEditor(settings.editor, file, line) },
 
-  async openFile(file) {
+  async openFile(file, { edit } = {}) {
+    if (!await Panels.canLeave()) return
     const r = await api.readFile(file).catch(e => ({ note: String(e.message || e) }))
     const ext = file.split('.').pop().toLowerCase()
-    const state = { file, title: this.active?.cwd ? this.relPath(this.active, file) : file }
+    const state = { file, title: this.active?.cwd ? this.relPath(this.active, file) : file, source: edit }
     if (r.image) Object.assign(state, { image: r.image, text: r.text })
     else if (r.text != null && ['html', 'htm'].includes(ext)) Object.assign(state, { html: r.text, fileUrl: await api.fileUrl(file) })
     else if (r.text != null && ['md', 'markdown', 'mdx'].includes(ext)) state.markdown = r.text
@@ -192,7 +195,17 @@ const App = {
     help: { description: 'Keyboard shortcuts and tips', run: () => openHelp() },
     usage: { description: 'Plan usage, limits and what used them', run: t => openUsage(t) },
     agents: { description: 'Browse and create subagents', run: () => Panels.show('agents') },
-    copy: { description: 'Copy last reply', run: t => { const a = $$('.assistant', t.messages).pop(); a ? copy(a.innerText) : toast('Nothing to copy yet') } },
+    copy: { description: 'Copy last reply, or /copy N for the Nth latest', run: (t, n) => { const a = $$('.assistant', t.messages).at(-(+n || 1)); a ? copy(a.innerText) : toast('Nothing to copy yet') } },
+    context: { description: 'Show context window usage', run: () => Panels.show('context') },
+    status: { description: 'Version, model, account and connection', run: () => openSettings('claude') },
+    rename: { description: 'Rename this conversation', run: (t, name) => renameConversation(t, name) },
+    plan: { description: 'Switch to plan mode, optionally with a task', run: (t, task) => { setMode(t, 'plan'); if (task?.trim()) t.send([{ type: 'text', text: task.trim() }]) } },
+    branch: { description: 'Branch this conversation into a new tab', run: async t => {
+      if (!t.sessionId || /^gemini/i.test(t.model || '')) return toast('Nothing to branch yet')
+      App.openProject(t.cwd, (await api.forkSession(t.sessionId, t.cwd)).sessionId, { newTab: true })
+    } },
+    stats: { description: 'Plan usage, limits and what used them', run: t => openUsage(t) },
+    keybindings: { description: 'Keyboard shortcuts', run: () => openHelp() },
     effort: { description: 'Set reasoning effort', run: () => $('#effort-chip').click() },
     fast: { description: 'Toggle fast mode', run: () => $('#fast-chip').click() },
     cost: { description: 'Plan usage, limits and what used them', run: t => openUsage(t) },
@@ -380,6 +393,12 @@ input.addEventListener('keydown', e => {
   if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); return hideSuggest() }
   const sendCombo = settings.enterSends ? (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) : (e.key === 'Enter' && (e.ctrlKey || e.metaKey))
   if (sendCombo && !e.isComposing) { e.preventDefault(); send() }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    if (input.value) { App.stash = input.value; App.setComposer(''); toast('Prompt stashed. Ctrl+S brings it back') }
+    else if (App.stash) { App.setComposer(App.stash); App.stash = '' }
+    return
+  }
   if (e.key === 'Tab' && !e.shiftKey && !open && !input.value && App.active.suggestion) { e.preventDefault(); return App.setComposer(App.active.suggestion) }
   const up = e.key === 'ArrowUp' && input.selectionStart === 0 && input.selectionEnd === 0
   const down = e.key === 'ArrowDown' && hist.i >= 0 && input.selectionStart === input.value.length
@@ -511,8 +530,10 @@ function renderStatus(tab) {
   const mode = MODES.find(m => m.value === tab.mode) || MODES[0]
   $('#st-mode').replaceChildren(el('kbd', '', 'Shift+Tab'), el('span', '', 'mode'))
   $('#mode-chip').title = `${mode.label} (Shift+Tab to switch)`
-  $('#st-msg').textContent = tab.busy ? (tab.permissions ? 'Waiting for you' : 'Working… Esc to stop') : tab.statusMsg || ''
-  $('#st-msg').classList.toggle('working', tab.busy && !tab.permissions)
+  const working = tab.busy && !tab.permissions
+  if (working) $('#st-msg').replaceChildren('Working… ', liveTime(tab.busySince, true), tab.turnTokens ? ` · ↓ ${fmtTokens(tab.turnTokens)} tokens` : '', ' · Esc to stop')
+  else $('#st-msg').textContent = tab.busy ? 'Waiting for you' : tab.statusMsg || ''
+  $('#st-msg').classList.toggle('working', working)
   $('#st-line').textContent = tab.statusLine || ''
   $('#st-cost').textContent = tab.cost ? `$${tab.cost.toFixed(tab.cost < 1 ? 3 : 2)}` : ''
   const ctx = $('#st-ctx')
@@ -641,8 +662,12 @@ $('#project-switch').onclick = async e => {
 
 App.usage = null
 App.refreshUsage = debounce(async tab => {
-  const u = await api.usage(tab?.live ? tab.id : null).catch(() => null)
-  if (u) { App.usage = u; renderUsageMeter() }
+  const box = $('.usage-modal .usage')
+  const u = await api.usage(tab?.live ? tab.id : null, !!box).catch(() => null)
+  if (!u) return
+  App.usage = u
+  renderUsageMeter()
+  if (box?.isConnected) box.replaceChildren(...usageView(u, tab))
 }, 1500)
 
 function renderUsageMeter() {
@@ -652,7 +677,8 @@ function renderUsageMeter() {
   if (b.hidden) return
   const pct = Math.round(w.utilization)
   b.className = 'ghost' + (pct >= 100 ? ' full' : pct >= 75 ? ' warn' : '')
-  b.replaceChildren(el('span', 'mini-bar', Object.assign(el('span'), { style: `width:${Math.min(pct, 100)}%` })), el('span', '', `${pct}% session`))
+  b.replaceChildren(el('span', 'mini-bar', Object.assign(el('span'), { style: `width:${Math.min(pct, 100)}%` })), el('span', '', `${pct}% session`),
+    w.resets_at ? el('span', 'muted', '· resets in ', liveTime(Date.parse(w.resets_at))) : null)
   b.title = `Session limit ${pct}% used` + (w.resets_at ? ` · resets ${clock(Date.parse(w.resets_at))}` : '')
 }
 
@@ -674,7 +700,7 @@ function usageView(u, tab) {
       el('div', 'meter-bar', Object.assign(el('span'), { style: `width:${Math.min(pct, 100)}%` })),
       detail ? el('div', 'muted small', detail) : null)
   }
-  const resets = w => w.resets_at ? `Resets ${clock(Date.parse(w.resets_at))}, in${until(Date.parse(w.resets_at))}` : ''
+  const resets = w => w.resets_at ? el('span', '', `Resets ${clock(Date.parse(w.resets_at))}, in `, liveTime(Date.parse(w.resets_at))) : null
   const windows = [['Current session', r.five_hour], ['This week, all models', r.seven_day], ['This week, Opus', r.seven_day_opus],
     ['This week, Sonnet', r.seven_day_sonnet], ...(r.model_scoped || []).map(w => [`This week, ${w.display_name}`, w])]
     .filter(([, w]) => w && w.utilization != null)
@@ -694,7 +720,7 @@ function usageView(u, tab) {
   if (s && (s.total_cost_usd || Object.keys(s.model_usage || {}).length)) {
     out.push(el('h3', '', 'This conversation'), el('div', 'kv',
       el('span', '', 'Cost (API pricing)'), el('span', 'mono', `$${s.total_cost_usd.toFixed(3)}`),
-      el('span', '', 'Time spent'), el('span', 'mono', `${(s.total_api_duration_ms / 1000).toFixed(0)} s API,${(s.total_duration_ms / 60000).toFixed(1)} min total`),
+      el('span', '', 'Time spent'), el('span', 'mono', `${dur(s.total_api_duration_ms)} API · ${dur(s.total_duration_ms)} total`),
       el('span', '', 'Code changed'), el('span', 'mono', `+${s.total_lines_added} −${s.total_lines_removed} lines`),
       ...Object.entries(s.model_usage).flatMap(([m, v]) => [el('span', '', m), el('span', 'mono',
         `${fmtTokens(v.inputTokens + v.cacheReadInputTokens + v.cacheCreationInputTokens)} in (${fmtTokens(v.cacheReadInputTokens)} cached) · ${fmtTokens(v.outputTokens)} out · $${v.costUSD.toFixed(3)}`)])))
@@ -770,16 +796,16 @@ $('#account').onclick = e => {
   ])
 }
 
-$('#chat-title').onclick = async () => {
-  const tab = App.active
-  if (!tab.sessionId) return
-  const t = await prompt('Rename conversation', tab.title)
+async function renameConversation(tab, name) {
+  if (!tab.sessionId) return toast('Send a message first')
+  const t = name?.trim() || await prompt('Rename conversation', tab.title)
   if (!t) return
   await api.renameSession(tab.sessionId, t, tab.cwd)
   tab.title = t
   App.tabChanged(tab)
   App.refreshSessions()
 }
+$('#chat-title').onclick = () => renameConversation(App.active)
 $('#chat-path').onclick = e => {
   const tab = App.active
   menu(e.currentTarget, [
@@ -793,8 +819,6 @@ $('#chat-path').onclick = e => {
 
 function openPalette() {
   const tab = App.active
-  const inputEl = el('input', 'field'); inputEl.placeholder = 'Type a command, conversation or project'
-  const list = el('div', 'palette-list')
   const actions = [
     ['Use Gemini (Antigravity)', 'sparkle', () => useGemini(tab)],
     ['Antigravity Settings', 'gear', () => openSettings('google')],
@@ -816,17 +840,28 @@ function openPalette() {
     ['Copy conversation as Markdown', 'copy', async () => copy(await tab.markdown())],
     ['Copy last reply', 'copy', () => App.runCommand('copy')],
     ['Usage and limits', 'gauge', () => openUsage()],
+    ['Search prompt history', 'clock-counter-clockwise', () => openHistory(), 'Ctrl R'],
   ].map(([label, ic, run, hint]) => ({ label, icon: ic, run, hint }))
   const commands = [...Object.entries(App.commands).map(([n, c]) => ({ name: n, description: c.description })), ...tab.meta.commands]
     .filter((c, i, a) => a.findIndex(x => x.name === c.name) === i)
     .map(c => ({ label: '/' + c.name, detail: c.description, icon: 'command', run: () => App.setComposer('/' + c.name + ' ') }))
   const sessions = (App.sessionList || []).slice(0, 50).map(s => ({ label: s.customTitle || s.summary || s.firstPrompt || 'Untitled', detail: ago(s.lastModified), icon: 'chats', run: () => App.openProject(tab.cwd, s.sessionId) }))
   let projects = []
+  const draw = picker('Command palette', 'Type a command, conversation or project', () => [...actions, ...commands, ...sessions, ...projects])
   recentProjects().then(p => { projects = p.slice(0, 20).map(x => ({ label: basename(x.cwd), detail: x.cwd, icon: 'folder', run: () => App.openProject(x.cwd) })); draw() })
+}
+
+function openHistory() {
+  picker('Prompt history', 'Search previous prompts', () => promptHistory().map(h => ({ label: h, icon: 'clock-counter-clockwise', run: () => App.setComposer(h) })))
+}
+
+function picker(title, placeholder, items) {
+  const inputEl = el('input', 'field'); inputEl.placeholder = placeholder
+  const list = el('div', 'palette-list')
   let sel = 0, shown = []
   function draw() {
     const words = inputEl.value.toLowerCase().split(/\s+/).filter(Boolean)
-    shown = [...actions, ...commands, ...sessions, ...projects].filter(it => words.every(w => (it.label + ' ' + (it.detail || '')).toLowerCase().includes(w))).slice(0, 80)
+    shown = items().filter(it => words.every(w => (it.label + ' ' + (it.detail || '')).toLowerCase().includes(w))).slice(0, 80)
     sel = Math.min(sel, Math.max(0, shown.length - 1))
     list.replaceChildren(...shown.map((it, i) => {
       const row = el('div', 'sugg' + (i === sel ? ' sel' : ''), icon(it.icon), el('span', 'sugg-label', it.label), el('span', 'sugg-detail', it.detail || ''), it.hint ? el('kbd', '', it.hint) : null)
@@ -840,9 +875,10 @@ function openPalette() {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length; draw() }
     if (e.key === 'Enter' && shown[sel]) { e.preventDefault(); m.close(); shown[sel].run() }
   }
-  const m = modal('Command palette', el('div', 'stack', inputEl, list), { wide: true })
+  const m = modal(title, el('div', 'stack', inputEl, list), { wide: true })
   m.box.classList.add('palette')
   draw()
+  return draw
 }
 
 function openSettings(section = 'appearance') {
@@ -989,7 +1025,8 @@ function openSettings(section = 'appearance') {
 function openHelp() {
   const rows = [
     ['Enter', 'Send (Shift+Enter for a new line)'], ['Esc', 'Stop agent'], ['Shift+Tab', 'Cycle permission mode'],
-    ['↑ / ↓', 'Previous prompts'], ['Tab in empty box', 'Use the suggested prompt'], ['Esc Esc', 'Rewind to an earlier message'], ['/', 'Slash commands, skills and custom commands'], ['@', 'Mention files, folders or agents'],
+    ['↑ / ↓', 'Previous prompts'], ['Ctrl+R', 'Search prompt history'], ['Ctrl+S', 'Stash or restore the prompt'], ['Esc Esc', 'Clear the prompt (kept in history)'],
+    ['Alt+P', 'Switch model'], ['Alt+O', 'Toggle fast mode'], ['Ctrl+S in editor', 'Save file'], ['Tab in empty box', 'Use the suggested prompt'], ['Esc Esc', 'Rewind to an earlier message'], ['/', 'Slash commands, skills and custom commands'], ['@', 'Mention files, folders or agents'],
     ['!command', 'Run a shell command and give agent the output'], ['#note', 'Save a note to CLAUDE.md memory'],
     ['Ctrl+K', 'Command palette'], ['Ctrl+T / Ctrl+W', 'New tab / close tab'], ['Ctrl+Tab', 'Next tab'], ['Ctrl+1…9', 'Go to tab'],
     ['Ctrl+O', 'Open folder'], ['Ctrl+F', 'Find in conversation'], ['Ctrl+B', 'Toggle sidebar'], ['Ctrl+J', 'Toggle panel'],
@@ -1047,9 +1084,11 @@ api.on('menu', ch => ({
   newTab: () => App.newTab(null), openFolder: () => App.pickFolder(), closeTab: () => App.closeTab(),
   export: () => App.active.exportMarkdown(), settings: openSettings, palette: openPalette, find: openFind,
   sidebar: () => saveSettings({ sidebar: !settings.sidebar }), panel: () => { Panels.toggle(); Terminals.fit() },
-  terminal: () => Panels.toggle('terminal'),
+  terminal: () => Panels.toggle('terminal'), history: openHistory,
 })[ch]?.())
 
+App.chatEl.addEventListener('scroll', () => { $('#to-bottom').hidden = !App.active || App.active.nearBottom() })
+$('#to-bottom').onclick = () => App.active.scroll(true)
 $('#send').onclick = send
 $('#stop').onclick = () => api.control(App.active.id, 'interrupt')
 $('#attach').onclick = () => $('#file').click()
@@ -1069,15 +1108,21 @@ $('#close-panel').onclick = () => saveSettings({ panel: false })
 document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey
   const tab = App.active
-  if (e.key === 'Escape' && !$('.modal-back') && !$('.menu')) {
+  if (e.key === 'Escape' && !$('.modal-back') && !$('.menu') && !e.target.closest?.('.editor')) {
     if (!$('#findbar').hidden) return closeFind()
     if (tab?.busy) api.control(tab.id, 'interrupt')
+    else if (input.value && e.target === input && Date.now() - (App.lastEsc || 0) < 500) { rememberPrompt(input.value); App.setComposer('') }
     else if (!input.value && tab?.cwd && Date.now() - (App.lastEsc || 0) < 500) App.runCommand('rewind')
     App.lastEsc = Date.now()
   }
   if (e.key === 'Tab' && e.shiftKey && !mod && tab?.cwd && (e.target === input || e.target === document.body)) {
     e.preventDefault()
     setMode(tab, MODES[(MODES.findIndex(m => m.value === tab.mode) + 1) % MODES.length].value)
+  }
+  if (e.altKey && !mod && tab?.cwd && (e.code === 'KeyP' || e.code === 'KeyO')) {
+    e.preventDefault()
+    const chip = $(e.code === 'KeyP' ? '#model-chip' : '#fast-chip')
+    if (!chip.hidden) chip.click()
   }
   if (mod && e.key === 'Tab') {
     e.preventDefault()
@@ -1136,6 +1181,13 @@ $('#main').addEventListener('mousedown', e => { if (e.target === e.currentTarget
     await App.openProject(r.cwd, id)
     ;[...App.tabs.values()].find(t => t.sessionId === id)?.scheduleResume(r.at - 30000)
   }
-  setInterval(() => App.tabs.forEach(t => t.tick()), 30000)
+  setInterval(() => { App.tabs.forEach(t => t.tick()); tickTimers() }, 1000)
+  let usageTicks = 0
+  setInterval(() => {
+    const r = App.usage?.rate_limits || {}
+    const reset = [r.five_hour, r.seven_day].some(w => w?.resets_at && Date.parse(w.resets_at) < Date.now())
+    const active = $('.usage-modal') || [...App.tabs.values()].some(t => t.live) || ++usageTicks % 5 === 0
+    if (reset || (active && !document.hidden)) App.refreshUsage(App.active)
+  }, 60000)
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission()
 })()

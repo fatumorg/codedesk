@@ -328,6 +328,7 @@ handle('createFile', async (_, file, content) => {
   try { await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, content, { flag: 'wx' }) }
   catch (e) { return { error: e.code === 'EEXIST' ? 'That file already exists' : String(e.message) } }
 })
+handle('writeFile', (_, file, content) => fs.writeFile(file, content))
 handle('git', (_, cwd, args) => run('git', args, { cwd }))
 handle('runShell', (_, cwd, command) =>
   run(win32 ? 'powershell.exe' : process.env.SHELL || '/bin/sh', win32 ? ['-NoProfile', '-Command', command] : ['-c', command], { cwd }))
@@ -448,12 +449,13 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
   { label: 'View', submenu: [
     { label: 'Command Palette', accelerator: 'CmdOrCtrl+K', click: send('palette') },
     { label: 'Find', accelerator: 'CmdOrCtrl+F', click: send('find') },
+    { label: 'Search Prompt History', accelerator: 'CmdOrCtrl+R', click: send('history') },
     { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: send('sidebar') },
     { label: 'Toggle Panel', accelerator: 'CmdOrCtrl+J', click: send('panel') },
     { label: 'Terminal', accelerator: 'CmdOrCtrl+`', click: send('terminal') },
     { type: 'separator' },
     { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }, { role: 'togglefullscreen' },
-    { type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' },
+    { type: 'separator' }, { role: 'reload', accelerator: 'CmdOrCtrl+Shift+R' }, { role: 'toggleDevTools' },
   ] },
   { role: 'windowMenu' },
 ]))

@@ -25,10 +25,19 @@ const ago = t => {
   const s = (Date.now() - t) / 1000
   return s < 60 ? 'just now' : s < 3600 ? `${s / 60 | 0}m ago` : s < 86400 ? `${s / 3600 | 0}h ago` : `${s / 86400 | 0}d ago`
 }
-const until = t => {
-  const m = Math.max(0, Math.round((t - Date.now()) / 60000))
-  return m < 60 ? `${m} min` : m < 1440 ? `${m / 60 | 0} h ${m % 60} min` : `${m / 1440 | 0} d ${(m % 1440) / 60 | 0} h`
+const dur = ms => {
+  let s = Math.max(0, Math.round(ms / 1000))
+  const parts = [[86400, 'd'], [3600, 'h'], [60, 'm'], [1, 's']].map(([n, u]) => { const v = s / n | 0; s %= n; return [v, u] })
+  const i = parts.findIndex(([v]) => v)
+  return i < 0 ? '0s' : parts.slice(i).map(([v, u]) => v + u).join(' ')
 }
+const until = t => dur(t - Date.now())
+const liveTime = (t, since) => {
+  const e = el('span', 'timer', since ? dur(Date.now() - t) : until(t))
+  e.dataset[since ? 'since' : 'until'] = t
+  return e
+}
+const tickTimers = () => $$('.timer').forEach(e => (e.textContent = e.dataset.since ? dur(Date.now() - e.dataset.since) : until(+e.dataset.until)))
 const clock = t => new Date(t).toLocaleString([], { weekday: t - Date.now() > 864e5 ? 'short' : undefined, hour: '2-digit', minute: '2-digit' })
 const fmtTokens = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n))
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }

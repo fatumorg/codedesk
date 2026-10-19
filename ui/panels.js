@@ -41,6 +41,11 @@ const Panels = {
     if (settings.panel) this.render()
   },
 
+  canLeave() {
+    const p = this.previewState
+    return !p?.dirty || confirmDialog('Discard unsaved changes?', `${basename(p.file)} has edits that are not saved.`, 'Discard', true)
+  },
+
   refresh(id) { if (settings.panel && this.current === id) this.render() },
 
   async render() {
@@ -62,7 +67,15 @@ const Panels = {
   },
 
   async files(tab, actions) {
-    actions.append(iconButton('arrows-clockwise', 'Refresh', () => this.render()),
+    actions.append(iconButton('file-plus', 'New file', async () => {
+      const name = await prompt('New file', '', { placeholder: 'src/example.js' })
+      if (!name?.trim()) return
+      const full = join(tab.cwd, name.trim())
+      const r = await api.createFile(full, '')
+      if (r?.error) return toast(r.error, 'err')
+      App.fileCache.delete(tab.cwd)
+      App.openFile(full)
+    }), iconButton('arrows-clockwise', 'Refresh', () => this.render()),
       iconButton('folder-open', 'Open folder in file manager', () => api.openPath(tab.cwd)))
     const tree = el('div', 'tree')
     const filter = el('input', 'field sm'); filter.placeholder = 'Find file…'
@@ -113,7 +126,7 @@ const Panels = {
   fileMenu(tab, full, dir) {
     return [
       { label: 'Mention in chat', icon: 'at', run: () => App.insertText('@' + App.relPath(tab, full) + ' ') },
-      ...(dir ? [] : [{ label: 'Preview', icon: 'eye', run: () => App.openFile(full) }, { label: 'Open in editor', icon: 'code', run: () => App.openInEditor(full) }]),
+      ...(dir ? [] : [{ label: 'Edit', icon: 'pencil-simple', run: () => App.openFile(full, { edit: true }) }, { label: 'Open in editor', icon: 'code', run: () => App.openInEditor(full) }]),
       { label: 'Open with default app', icon: 'arrow-square-out', run: () => api.openPath(full) },
       { label: 'Show in file manager', icon: 'folder-open', run: () => api.showItem(full) },
       { label: 'Copy path', icon: 'copy', run: () => copy(full) },
@@ -197,6 +210,7 @@ const Panels = {
       s.file && iconButton('at', 'Mention in chat', () => App.insertText('@' + App.relPath(tab, s.file) + ' ')),
       (s.html || s.markdown) && iconButton(s.source ? 'eye' : 'code', s.source ? 'Rendered' : 'Source', () => { s.source = !s.source; this.render() }),
       s.url && iconButton('arrows-clockwise', 'Reload', () => this.render()),
+      s.file && !s.image && iconButton('arrows-clockwise', 'Reload from disk', async () => { if (await this.canLeave()) { s.dirty = false; App.openFile(s.file) } }),
       s.url && iconButton('globe', 'Open in browser', () => api.openExternal(s.url)),
     ].filter(Boolean))
     wrap.append(el('div', 'panel-sub', icon(s.url ? 'globe' : 'file'), s.title || s.file || s.url))
@@ -212,6 +226,7 @@ const Panels = {
       f.src = s.fileUrl
       wrap.append(f)
     } else if (s.markdown && !s.source) wrap.append(el('div', 'preview-md', md(s.markdown)))
+    else if (s.file && (s.text ?? s.html ?? s.markdown) != null) wrap.append(this.editor(s))
     else if (s.text != null || s.html || s.markdown) {
       const text = s.text ?? s.html ?? s.markdown
       const pre = el('pre', 'code-view numbered')
@@ -219,6 +234,49 @@ const Panels = {
       wrap.append(pre)
     } else wrap.append(el('div', 'panel-empty', s.note || 'Cannot preview this file.'))
     return wrap
+  },
+
+  editor(s) {
+    const key = s.text != null ? 'text' : s.html != null ? 'html' : 'markdown'
+    const ta = el('textarea', 'editor-input'), hl = el('pre', 'code-view numbered editor-hl')
+    Object.assign(ta, { value: s.draft ?? s[key], spellcheck: false, wrap: 'off' })
+    const big = ta.value.length > 300000
+    const box = el('div', 'editor' + (big ? ' plain' : ''), hl, ta)
+    const status = el('span', 'muted small')
+    const save = button('Save', async () => {
+      try { await api.writeFile(s.file, ta.value) } catch (e) { return toast(String(e.message || e), 'err') }
+      s[key] = ta.value; s.draft = null; s.dirty = false
+      paint()
+      toast(`Saved ${basename(s.file)}`)
+    }, 'primary sm', 'floppy-disk')
+    let raf = 0
+    const paint = () => {
+      s.dirty = ta.value !== s[key]
+      s.draft = s.dirty ? ta.value : null
+      save.disabled = !s.dirty
+      status.textContent = s.dirty ? 'Unsaved changes · Ctrl+S to save' : 'Saved'
+      if (!big) hl.innerHTML = highlightFile(ta.value, s.file).split('\n').map(l => `<span class="cl">${l || ' '}</span>`).join('')
+      sync()
+    }
+    const sync = () => { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft }
+    ta.oninput = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(paint) }
+    ta.onscroll = sync
+    ta.onkeydown = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (s.dirty) save.click() }
+      const start = ta.value.lastIndexOf('\n', ta.selectionStart - 1) + 1
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        const n = e.shiftKey ? ta.value.slice(start, start + 2).match(/^ */)[0].length : 0
+        if (!e.shiftKey) document.execCommand('insertText', false, '  ')
+        else if (n) { ta.setSelectionRange(start, start + n); document.execCommand('delete') }
+      }
+      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.isComposing) {
+        e.preventDefault()
+        document.execCommand('insertText', false, '\n' + ta.value.slice(start).match(/^[ \t]*/)[0])
+      }
+    }
+    paint()
+    return el('div', 'stack editor-wrap', box, el('div', 'row', status, el('span', 'spacer'), save))
   },
 
   async tasks(tab) {
@@ -231,7 +289,8 @@ const Panels = {
       wrap.append(el('div', 'task-row',
         el('span', 'status-pill ' + t.status, t.status),
         el('div', 'grow', el('div', '', t.description || t.id), t.summary && t.summary !== t.description ? el('div', 'muted small', t.summary) : null,
-          t.usage ? el('div', 'muted small', `${fmtTokens(t.usage.total_tokens)} tokens · ${t.usage.tool_uses} tool uses · ${(t.usage.duration_ms / 1000).toFixed(0)}s`) : null),
+          t.usage ? el('div', 'muted small', `${fmtTokens(t.usage.total_tokens)} tokens · ${t.usage.tool_uses} tool uses · ${dur(t.usage.duration_ms)}`)
+            : t.status === 'running' && t.started ? el('div', 'muted small', 'Running for ', liveTime(t.started, true)) : null),
         t.status === 'running' ? iconButton('stop', 'Stop task', () => api.control(tab.id, 'stopTask', t.id)) : null))
     }
     return wrap

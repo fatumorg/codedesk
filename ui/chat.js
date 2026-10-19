@@ -109,6 +109,7 @@ class Tab {
   }
 
   setBusy(b) {
+    if (b && !this.busy) { this.busySince = Date.now(); this.turnTokens = 0 }
     this.busy = b
     if (!b) for (const t of this.tools.values()) t.card.classList.remove('running')
     App.tabChanged(this)
@@ -222,6 +223,7 @@ class Tab {
     const e = m.event
     if (parent) return
     if (e.type === 'message_start') { this.setBusy(true); $$('.queued', this.messages).forEach(q => q.classList.remove('queued')) }
+    if (e.type === 'message_delta' && e.usage?.output_tokens) { this.turnTokens += e.usage.output_tokens; if (App.active === this) renderStatus(this) }
     if (e.type === 'content_block_start' && e.content_block.type === 'text') this.liveText = { text: '', node: this.add(el('div', 'assistant')) }
     if (e.type === 'content_block_delta' && e.delta.type === 'text_delta' && this.liveText) {
       this.liveText.text += e.delta.text
@@ -275,7 +277,7 @@ class Tab {
   result(m) {
     this.setBusy(false)
     this.cost = m.total_cost_usd || this.cost
-    App.status(this, `Done in ${(m.duration_ms / 1000).toFixed(1)}s · ${m.num_turns} turn${m.num_turns === 1 ? '' : 's'}`)
+    App.status(this, `Done in ${dur(m.duration_ms)} · ${m.num_turns} turn${m.num_turns === 1 ? '' : 's'}`)
     const limitText = /hit your (usage )?limit|usage limit reached|limit reached/i.test(m.result || '')
     if (this.limited || limitText) {
       this.scheduleResume(this.limited > 0 ? this.limited : 0)
