@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createInterface } from 'node:readline'
+import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -348,6 +349,11 @@ handle('git', (_, cwd, args) => run('git', args, { cwd }))
 handle('runShell', (_, cwd, command) =>
   run(win32 ? 'powershell.exe' : process.env.SHELL || '/bin/sh', win32 ? ['-NoProfile', '-Command', command] : ['-c', command], { cwd }))
 handle('cli', (_, args) => run(claudePath || 'claude', args, { timeout: 600000 }))
+let accounts
+const accountStore = () => (accounts ||= createAccounts(claudeFiles(homedir(), process.env), path.join(app.getPath('userData'), 'accounts.json')))
+handle('accounts', () => accountStore().list())
+handle('switchAccount', (_, id) => accountStore().switchTo(id))
+handle('forgetAccount', async (_, id) => accountStore().forget(id || await accountStore().activeId()))
 handle('appendMemory', async (_, file, text) => {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const prev = await fs.readFile(file, 'utf8').catch(() => '')

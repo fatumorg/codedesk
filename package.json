@@ -34,6 +34,7 @@
     "files": [
       "main.mjs",
       "agy.mjs",
+      "accounts.mjs",
       "preload.cjs",
       "ui/**",
       "build/icon.*",

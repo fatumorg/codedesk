@@ -190,7 +190,7 @@ const App = {
     diff: { description: 'Show changed files', run: () => Panels.show('changes') },
     tasks: { description: 'Show to-dos and background tasks', run: () => Panels.show('tasks') },
     login: { description: 'Sign in to Claude', run: t => t.loginPrompt() },
-    logout: { description: 'Sign out', run: async () => { await api.cli(['auth', 'logout']); toast('Signed out'); loadAccount() } },
+    logout: { description: 'Sign out', run: async () => { await api.forgetAccount(); await api.cli(['auth', 'logout']); toast('Signed out'); loadAccount() } },
     export: { description: 'Export conversation as Markdown', run: t => t.exportMarkdown() },
     help: { description: 'Keyboard shortcuts and tips', run: () => openHelp() },
     usage: { description: 'Plan usage, limits and what used them', run: t => openUsage(t) },
@@ -789,11 +789,12 @@ function useGemini(tab) {
 }
 
 async function loadAccount() {
-  const [r, g] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({}))])
+  const [r, g, list] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({})), api.accounts().catch(() => [])])
   let s = {}
   try { s = JSON.parse(r.stdout) } catch {}
   App.account = s
   App.google = g || {}
+  App.accounts = list
   const label = s.loggedIn
     ? (s.email || s.account?.email || (s.authMethod === 'claude.ai' ? 'Claude account' : s.authMethod))
     : g?.loggedIn ? 'Antigravity' : 'Sign in'
@@ -802,18 +803,44 @@ async function loadAccount() {
 $('#account').onclick = e => {
   const s = App.account || {}
   const g = App.google || {}
+  const list = App.accounts || [], others = list.filter(a => !a.active)
   menu(e.currentTarget, [
+    ...(list.length ? [{ header: 'Claude accounts' }, ...list.map(a => ({
+      label: a.email, detail: [a.plan && a.plan[0].toUpperCase() + a.plan.slice(1), a.org].filter(Boolean).join(' · '), icon: 'user', checked: a.active, run: () => switchAccount(a),
+    }))] : []),
     ...(s.loggedIn ? [
-      { header: [s.email, s.subscriptionType || s.authMethod, s.apiProvider].filter(Boolean).join(' · ') },
+      { label: 'Add another account', icon: 'user-plus', run: addAccount },
       { label: 'Usage and limits', icon: 'gauge', run: () => openUsage() },
       { label: 'Sign out of Claude', icon: 'sign-out', run: () => App.runCommand('logout') },
-    ] : [{ label: 'Sign in to Claude', icon: 'sign-in', run: async () => { toast('Finish signing in in your browser'); await api.cli(['auth', 'login']); loadAccount() } }]),
+    ] : [{ label: 'Sign in to Claude', icon: 'sign-in', run: addAccount }]),
+    ...(others.length ? [{ label: 'Remove account', icon: 'trash', more: others.map(a => ({
+      label: a.email, icon: 'x', danger: true, run: async () => { await api.forgetAccount(a.id); loadAccount() },
+    })) }] : []),
     '-',
     { header: `Antigravity · ${!g.installed ? 'Not installed' : g.loggedIn ? 'Signed in' : 'Not signed in'}` },
     ...(g.loggedIn ? [] : [{ label: 'Sign in with Google (Antigravity)', icon: 'sign-in', run: signInAgy }]),
     { label: 'Use Gemini in this tab', icon: 'cpu', run: () => useGemini(App.active) },
     { label: 'Antigravity Settings', icon: 'gear', run: () => openSettings('google') },
   ])
+}
+
+async function accountChanged(msg) {
+  restartIdleTabs()
+  await loadAccount()
+  App.refreshUsage(App.active)
+  toast(msg)
+}
+async function switchAccount(a) {
+  if (a.active) return
+  try { await api.switchAccount(a.id) } catch (e) { return toast(String(e.message || e), 'err') }
+  accountChanged(`Switched to ${a.email}`)
+}
+async function addAccount() {
+  await api.accounts()
+  toast('Finish signing in in your browser. Switch accounts on claude.ai first to add a different one.')
+  const r = await api.cli(['auth', 'login'])
+  if (r.code) return toast('Sign-in failed. Run `claude auth login` in a terminal.', 'err')
+  accountChanged('Signed in as ' + ((await api.accounts()).find(a => a.active)?.email || 'new account'))
 }
 
 async function renameConversation(tab, name) {
