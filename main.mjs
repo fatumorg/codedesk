@@ -160,13 +160,13 @@ async function startGeminiSession(wc, tab, opts) {
 }
 
 function saverOptions(saver = {}) {
-  const extra = {}
+  const extra = { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' }
   if (['sonnet', 'haiku'].includes(saver.subagentModel)) extra.CLAUDE_CODE_SUBAGENT_MODEL = saver.subagentModel
   const pct = +saver.compactAt
   if (saver.compactAt && Number.isInteger(pct) && pct >= 1 && pct <= 100) extra.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(pct)
   const turns = +saver.maxTurns
   return {
-    ...(Object.keys(extra).length && { env: { ...process.env, ...extra } }),
+    env: { ...process.env, ...extra },
     ...(saver.maxTurns && Number.isInteger(turns) && turns > 0 && { maxTurns: turns }),
     ...(saver.noSubagents === true && { disallowedTools: ['Agent', 'Task'] }),
   }

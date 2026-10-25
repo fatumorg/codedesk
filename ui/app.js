@@ -1139,7 +1139,11 @@ api.on('menu', ch => ({
   terminal: () => Panels.toggle('terminal'), history: openHistory,
 })[ch]?.())
 
-App.chatEl.addEventListener('scroll', () => { $('#to-bottom').hidden = !App.active || App.active.nearBottom() })
+App.chatEl.addEventListener('scroll', () => {
+  if (!App.active) return
+  App.active.stuck = App.active.nearBottom(40)
+  $('#to-bottom').hidden = App.active.nearBottom()
+})
 $('#to-bottom').onclick = () => App.active.scroll(true)
 $('#send').onclick = send
 $('#stop').onclick = () => api.control(App.active.id, 'interrupt')

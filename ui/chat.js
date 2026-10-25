@@ -58,6 +58,8 @@ class Tab {
     this.view = el('div', 'view')
     this.messages = el('div', 'messages')
     this.view.append(this.messages)
+    this.stuck = true
+    new ResizeObserver(() => this.stuck && this.scroll(true)).observe(this.messages)
   }
 
   get name() { return this.cwd ? basename(this.cwd) : 'New tab' }
@@ -126,20 +128,19 @@ class Tab {
     App.tabChanged(this)
   }
 
-  nearBottom() { const c = App.chatEl; return c.scrollHeight - c.scrollTop - c.clientHeight < 160 }
+  nearBottom(px = 160) { const c = App.chatEl; return c.scrollHeight - c.scrollTop - c.clientHeight < px }
   scroll(force) {
     if (App.active !== this) return
-    if (force || this.nearBottom()) requestAnimationFrame(() => (App.chatEl.scrollTop = App.chatEl.scrollHeight))
+    if (force) this.stuck = true
+    if (this.stuck) requestAnimationFrame(() => (App.chatEl.scrollTop = App.chatEl.scrollHeight))
   }
 
   add(node, parentToolId, { anim = true } = {}) {
     this.view.querySelector('.empty')?.remove()
     const wrap = el('div', 'msg' + (anim && !this.loadingHistory ? ' anim' : ''), node)
     const parent = parentToolId && this.tools.get(parentToolId)
-    const stick = App.active === this && this.nearBottom()
     ;(parent ? parent.sub : this.messages).append(wrap)
     if (parent) parent.sub.hidden = false
-    if (stick) this.scroll(true)
     return wrap
   }
 
@@ -252,7 +253,6 @@ class Tab {
         if (!this.liveText) return
         this.liveText.raf = 0
         this.liveText.node.replaceChildren(md(this.liveText.text))
-        this.scroll()
       })
     }
   }
