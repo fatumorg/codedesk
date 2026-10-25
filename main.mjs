@@ -159,6 +159,19 @@ async function startGeminiSession(wc, tab, opts) {
   })
 }
 
+function saverOptions(saver = {}) {
+  const extra = {}
+  if (['sonnet', 'haiku'].includes(saver.subagentModel)) extra.CLAUDE_CODE_SUBAGENT_MODEL = saver.subagentModel
+  const pct = +saver.compactAt
+  if (saver.compactAt && Number.isInteger(pct) && pct >= 1 && pct <= 100) extra.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(pct)
+  const turns = +saver.maxTurns
+  return {
+    ...(Object.keys(extra).length && { env: { ...process.env, ...extra } }),
+    ...(saver.maxTurns && Number.isInteger(turns) && turns > 0 && { maxTurns: turns }),
+    ...(saver.noSubagents === true && { disallowedTools: ['Agent', 'Task'] }),
+  }
+}
+
 function startSession(wc, tab, opts) {
   const { cwd, resume, model, permissionMode, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
   if (!existsSync(cwd)) return wc.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
@@ -194,6 +207,7 @@ function startSession(wc, tab, opts) {
       enableFileCheckpointing: true,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       tools: { type: 'preset', preset: 'claude_code' },
+      ...saverOptions(opts.saver),
       settingSources: ['user', 'project', 'local'],
       stderr: line => send('claude:stderr', { line }),
       canUseTool: (toolName, input, { signal, suggestions, decisionReason, title }) =>

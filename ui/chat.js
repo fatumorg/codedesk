@@ -37,6 +37,8 @@ class Tab {
     this.mode = settings.defaultMode
     this.effort = settings.defaultEffort
     this.fast = false
+    this.saver = settings.saverOn
+    this.routed = false
     this.tools = new Map()
     this.changes = new Map()
     this.tasks = new Map()
@@ -67,7 +69,7 @@ class Tab {
     this.sessionId = sessionId || null
     this.messages.replaceChildren()
     this.tools.clear(); this.changes.clear(); this.tasks.clear(); this.todos = []
-    this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0
+    this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0; this.routed = false
     this.title = 'New conversation'
     this.setBusy(false)
     if (sessionId && history) {
@@ -97,13 +99,16 @@ class Tab {
     this.lastActive = Date.now()
     await api.start(this.id, {
       cwd: this.cwd, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
-      effort: this.effort === 'ultracode' ? 'max' : this.effort || undefined, additionalDirectories: this.addDirs, ...extra,
+      effort: this.effort === 'ultracode' ? 'max' : this.effort || undefined, additionalDirectories: this.addDirs,
+      saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents }, ...extra,
     })
     const flags = { ...(this.fast && { fastMode: true }), ...(this.effort === 'ultracode' && { ultracode: true, effortLevel: 'max' }) }
     if (Object.keys(flags).length) api.control(this.id, 'applyFlagSettings', flags).catch(() => toast('Ultracode is not available for this model or account', 'err'))
   }
 
   async ensureLive() { if (!this.live && this.cwd) await this.start() }
+
+  static cachedSkills() { try { return JSON.parse(localStorage.getItem('skills') || '[]') } catch { return [] } }
 
   static cachedModels() { try { return JSON.parse(localStorage.getItem('models') || '[]') } catch { return [] } }
 
@@ -173,9 +178,18 @@ class Tab {
         if (r.status === 'rejected') { this.limited = r.resetsAt ? r.resetsAt * 1000 : this.limited || -1; return }
         if (r.status === Tab.rateStatus) return
         Tab.rateStatus = r.status
-        if (r.status === 'allowed_warning') this.add(el('div', 'notice warn', icon('gauge'),
-          `Usage limit almost reached` + (r.utilization != null ? ` · ${Math.round(r.utilization * (r.utilization <= 1 ? 100 : 1))}% used` : '') + (r.resetsAt ? ` · resets ${clock(r.resetsAt * 1000)}` : ''),
-          button('Usage', () => openUsage(this), 'ghost sm')))
+        if (r.status === 'allowed_warning') {
+          const saver = settings.saverModel
+          const tabs = saver ? [...App.tabs.values()].filter(t => !/^gemini/i.test(t.model || '')) : []
+          for (const t of tabs) { t.beforeSaver ||= { model: t.model, effort: t.effort }; setModel(t, saver); setEffort(t, 'low') }
+          const undo = button('Undo', () => {
+            for (const t of tabs) if (t.beforeSaver) { setModel(t, t.beforeSaver.model); setEffort(t, t.beforeSaver.effort); t.beforeSaver = null }
+            undo.disabled = true
+          }, 'ghost sm')
+          this.add(el('div', 'notice warn', icon('gauge'),
+            `Usage limit almost reached` + (r.utilization != null ? ` · ${Math.round(r.utilization * (r.utilization <= 1 ? 100 : 1))}% used` : '') + (r.resetsAt ? ` · resets ${clock(r.resetsAt * 1000)}` : '') + (saver ? ` · switched to ${saver}, low effort` : ''),
+            button('Usage', () => openUsage(this), 'ghost sm'), ...(saver ? [undo] : [])))
+        }
         return
       }
     }
@@ -187,6 +201,7 @@ class Tab {
         this.sessionId = m.session_id
         this.meta.mcp = m.mcp_servers
         this.meta.skills = m.skills || []
+        try { localStorage.setItem('skills', JSON.stringify(this.meta.skills)) } catch {}
         this.meta.model = m.model
         this.meta.version = m.claude_code_version
         this.meta.outputStyle = m.output_style
@@ -288,6 +303,8 @@ class Tab {
     if (this.limited || limitText) {
       this.scheduleResume(this.limited > 0 ? this.limited : 0)
       this.limited = 0
+    } else if (m.subtype === 'error_max_turns') {
+      this.add(el('div', 'notice warn', icon('gauge'), 'Stopped after the step limit (Settings → Usage). Send a message to keep going.'))
     } else if (m.subtype !== 'success' || m.is_error) {
       const text = m.result || (m.errors || []).join('\n') || m.subtype.replace(/_/g, ' ')
       this.add(el('div', 'notice err', icon('warning'), text))
@@ -331,7 +348,7 @@ class Tab {
     const text = el('span', 'grow')
     const auto = button('Continue automatically', () => { saveSettings({ autoContinue: true }); this.renderResume() }, 'sm')
     this.resumeCard = el('div', 'notice limit', icon('hourglass-medium'), text,
-      auto, button('Continue now', () => this.resume(), 'sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
+      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => openSettings('usage'), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
     this.resumeCard.text = text
     this.resumeCard.auto = auto
     this.add(this.resumeCard)
@@ -368,7 +385,7 @@ class Tab {
   async resume() {
     this.cancelResume()
     notify(`${this.name}: continuing`, 'Usage limit has reset')
-    await this.send(Tab.CONTINUE)
+    await this.send(settings.continuePrompt.trim() || Tab.CONTINUE)
   }
 
   static CONTINUE = 'Your usage limit has reset. Continue the task you were working on from where you left off.'

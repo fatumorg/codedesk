@@ -270,7 +270,10 @@ async function send() {
       : { type: 'image', source: { type: 'base64', media_type: a.type, data: a.data } }),
     ...(text ? [{ type: 'text', text }] : []),
   ]
+  const route = tab.saver && !tab.routed && !tab.sessionId && !/^gemini/i.test(tab.model || '')
+    ? routeModel(text, { settings, skills: [...new Set([...Tab.cachedSkills(), ...tab.meta.skills])], attachments: tab.attachments.length > 0, mode: tab.mode }) : null
   clear()
+  if (route) { tab.routed = true; tab.routeWhy = route.reason; setModel(tab, route.model) }
   tab.send(content)
 }
 
@@ -447,13 +450,18 @@ function renderChips(tab) {
   $('#mode-chip').replaceChildren(icon(mode.icon), el('span', '', mode.label))
   $('#mode-chip').className = 'chip mode-' + mode.value
   const model = modelInfo(tab)
-  $('#model-chip').replaceChildren(el('span', '', model.label), icon('caret-down'))
+  $('#model-chip').replaceChildren(el('span', '', tab.saver ? `Saver · ${model.label}` : model.label), icon('caret-down'))
+  $('#model-chip').title = tab.saver && tab.routeWhy ? `Codedesk Saver chose this: ${tab.routeWhy}` : ''
   const effort = EFFORTS.find(l => l.value === tab.effort) || EFFORTS[1]
   $('#effort-chip').replaceChildren(icon(effort.value === 'ultracode' ? 'sparkle' : 'brain'), el('span', '', effort.label))
   $('#effort-chip').className = 'chip effort-chip lvl-' + effort.value
   $('#effort-chip').hidden = model.supportsEffort === false || (!!model.description && !model.supportsEffort && !model.supportedEffortLevels)
   $('#fast-chip').hidden = !model.supportsFastMode
   $('#fast-chip').classList.toggle('on', tab.fast)
+}
+
+function restartIdleTabs() {
+  for (const t of App.tabs.values()) if (t.live && !t.busy && !t.permissions && !/^gemini/i.test(t.model || '')) { api.stop(t.id); t.live = false }
 }
 
 function setMode(tab, value) {
@@ -485,10 +493,20 @@ $('#mode-chip').onclick = e => {
 }
 $('#model-chip').onclick = e => {
   const tab = App.active
-  const more = MORE_MODELS.map(([id, label]) => ({ label, detail: id, icon: 'clock-counter-clockwise', checked: tab.model === id, run: () => setModel(tab, id) }))
+  const more = MORE_MODELS.map(([id, label]) => ({ label, detail: id, icon: 'clock-counter-clockwise', checked: !tab.saver && tab.model === id, run: () => pick(id) }))
   const legacySelected = MORE_MODELS.some(([id]) => id === tab.model)
-  menu(e.currentTarget, [{ header: 'Model' },
-    ...mainModels(tab).map(m => ({ label: m.label, detail: m.detail, icon: /^gemini/i.test(m.value) ? 'sparkle' : 'cpu', checked: tab.model === m.value, run: () => setModel(tab, m.value) })),
+  const pick = value => { tab.saver = false; setModel(tab, value) }
+  const saver = [
+    { label: 'Codedesk Saver', detail: 'Picks a model for each new conversation from your rules', icon: 'gauge', checked: tab.saver, run: () => {
+      tab.saver = !tab.saver
+      saveSettings({ saverOn: tab.saver })
+      if (tab.saver) toast(tab.sessionId ? 'Saver picks the model when you start a new conversation' : 'Saver picks the model when you send your first message')
+      App.tabChanged(tab)
+    } },
+    { label: 'Saver rules…', icon: 'sliders-horizontal', run: () => openSettings('usage') },
+  ]
+  menu(e.currentTarget, [{ header: 'Model' }, ...saver, '-',
+    ...mainModels(tab).map(m => ({ label: m.label, detail: m.detail, icon: /^gemini/i.test(m.value) ? 'sparkle' : 'cpu', checked: !tab.saver && tab.model === m.value, run: () => pick(m.value) })),
     '-', ...(legacySelected ? [{ header: 'More models' }, ...more] : [{ label: 'More models', icon: 'stack', more }])])
 }
 $('#effort-chip').onclick = e => {
@@ -910,13 +928,23 @@ function openSettings(section = 'appearance') {
     draw()
     return g
   }
-  const toggle = key => { const c = el('input', 'switch'); c.type = 'checkbox'; c.checked = settings[key]; c.onchange = () => saveSettings({ [key]: c.checked }); return c }
+  const toggle = (key, after) => { const c = el('input', 'switch'); c.type = 'checkbox'; c.checked = settings[key]; c.onchange = () => { saveSettings({ [key]: c.checked }); after?.() }; return c }
   const range = (key, min, max, step, unit = '') => {
     const out = el('span', 'mono muted', settings[key] + unit)
     const r = el('input'); Object.assign(r, { type: 'range', min, max, step, value: settings[key] })
     r.oninput = () => { saveSettings({ [key]: +r.value }); out.textContent = r.value + unit }
     return el('div', 'range-row', r, out)
   }
+  const SAVER_MODELS = [['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']]
+  const saverWords = key => {
+    const i = el('input', 'field mono')
+    Object.assign(i, { value: settings[key], spellcheck: false })
+    i.oninput = debounce(() => saveSettings({ [key]: i.value }), 300)
+    return i
+  }
+  const continueBox = el('textarea', 'field')
+  Object.assign(continueBox, { value: settings.continuePrompt, placeholder: Tab.CONTINUE, rows: 3, spellcheck: false })
+  continueBox.oninput = debounce(() => saveSettings({ continuePrompt: continueBox.value }), 300)
   const swatches = () => {
     const g = el('div', 'swatches')
     const draw = () => g.replaceChildren(...Object.entries(ACCENTS).map(([k, [label, light, dark]]) => {
@@ -977,7 +1005,21 @@ function openSettings(section = 'appearance') {
       row('Expand tool details', toggle('expandTools'), 'Open every tool call by default instead of only edits and plans.'),
       row('Desktop notifications', toggle('notifications'), 'When agent finishes or needs you while the window is in the background.'),
       row('Sound when done', toggle('sounds')),
+    ]],
+    usage: ['Usage', 'gauge', () => [
       row('Continue after a usage limit resets', toggle('autoContinue')),
+      row('Continue message', continueBox, 'Sent when Claude picks a task back up. Leave empty for the default.'),
+      row('Codedesk Saver', toggle('saverOn', () => App.tabs.forEach(t => (t.saver = settings.saverOn, App.tabChanged(t)))), 'Picks the model once, when a conversation starts, so the prompt cache is never rebuilt. Skills, slash commands, plan mode, attachments and long prompts always keep your default model.'),
+      row('Quick tasks', el('div', 'row', saverWords('saverQuickWords'), select('saverQuickModel', SAVER_MODELS)), 'Short prompts containing these words. Haiku is raised to Sonnet when skills are installed.'),
+      row('Heavy tasks', el('div', 'row', saverWords('saverHeavyWords'), select('saverHeavyModel', SAVER_MODELS)), 'Checked first, so "explain the design" counts as heavy.'),
+      row('Everything else', select('saverOtherModel', SAVER_MODELS)),
+      row('Cheaper model near the limit', select('saverModel', [['', 'Off'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]), 'Switches open conversations to this model and low effort when the limit is almost reached. The next message re-reads the whole conversation once, so very long conversations save less.'),
+      row('Subagent model', select('subagentModel', [['', 'Same as conversation'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']], restartIdleTabs), 'Skills that choose a subagent model themselves still win.'),
+      row('Allow subagents', toggle('allowSubagents', restartIdleTabs), 'Off stops Claude from starting subagents, which each use their own context.'),
+      row('Compact earlier', select('compactAt', [['', 'Default'], ['50', '50%'], ['60', '60%'], ['70', '70%'], ['80', '80%']], restartIdleTabs), 'Shorter context means less usage per message.'),
+      row('Step limit per message', select('maxTurns', [['', 'Unlimited'], ['10', '10'], ['25', '25'], ['50', '50'], ['100', '100']], restartIdleTabs)),
+      el('div', 'muted small', 'Applies from the next message.'),
+      el('div', 'row', button('Use recommended savings', () => { saveSettings({ saverModel: 'sonnet', subagentModel: 'haiku', compactAt: '70' }); restartIdleTabs(); show('usage') }, '', 'gauge')),
     ]],
     defaults: ['New conversations', 'sliders-horizontal', () => [
       row('Permission mode', select('defaultMode', MODES.map(m => [m.value, m.label]))),
