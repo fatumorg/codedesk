@@ -199,6 +199,7 @@ const App = {
     context: { description: 'Show context window usage', run: () => Panels.show('context') },
     status: { description: 'Version, model, account and connection', run: () => openSettings('claude') },
     rename: { description: 'Rename this conversation', run: (t, name) => renameConversation(t, name) },
+    continue: { description: 'Continue this task once the usage limit resets', run: t => t.continueAfterLimit() },
     plan: { description: 'Switch to plan mode, optionally with a task', run: (t, task) => { setMode(t, 'plan'); if (task?.trim()) t.send([{ type: 'text', text: task.trim() }]) } },
     branch: { description: 'Branch this conversation into a new tab', run: async t => {
       if (!t.sessionId || /^gemini/i.test(t.model || '')) return toast('Nothing to branch yet')
@@ -1262,7 +1263,7 @@ $('#main').addEventListener('mousedown', e => { if (e.target === e.currentTarget
   App.refreshUsage(null)
   for (const [id, r] of Object.entries(Tab.resumes())) {
     await App.openProject(r.cwd, id)
-    ;[...App.tabs.values()].find(t => t.sessionId === id)?.scheduleResume(r.at - 30000)
+    ;[...App.tabs.values()].find(t => t.sessionId === id)?.scheduleResume(r.at - 30000, r.force)
   }
   setInterval(() => { App.tabs.forEach(t => t.tick()); tickTimers() }, 1000)
   let usageTicks = 0

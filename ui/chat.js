@@ -335,16 +335,29 @@ class Tab {
     App.tabChanged(this)
   }
 
-  async scheduleResume(at) {
-    if (!at) {
-      const r = (await api.usage(this.id).catch(() => null))?.rate_limits || {}
-      const full = [r.five_hour, r.seven_day, r.seven_day_opus, r.seven_day_sonnet, ...(r.model_scoped || [])]
-        .filter(w => w?.resets_at && w.utilization >= 100).map(w => Date.parse(w.resets_at))
-      at = full.length ? Math.max(...full) : Date.now() + 15 * 60000
-    }
+  async limitReset() {
+    const r = (await api.usage(this.id).catch(() => null))?.rate_limits || {}
+    const full = [r.five_hour, r.seven_day, r.seven_day_opus, r.seven_day_sonnet, ...(r.model_scoped || [])]
+      .filter(w => w?.resets_at && w.utilization >= 100).map(w => Date.parse(w.resets_at))
+    return full.length ? Math.max(...full) : 0
+  }
+
+  async continueAfterLimit() {
+    if (!this.sessionId) return toast('Nothing to continue yet')
+    if (this.busy) return toast('Claude is still working')
+    const at = await this.limitReset()
+    if (at > Date.now()) this.scheduleResume(at, true)
+    else this.resume()
+  }
+
+  get autoResume() { return settings.autoContinue || this.forceResume }
+
+  async scheduleResume(at, force) {
+    if (!at) at = await this.limitReset() || Date.now() + 15 * 60000
     this.cancelResume()
     this.resumeAt = at + 30000
-    if (this.sessionId) Tab.saveResume(this.sessionId, { cwd: this.cwd, at: this.resumeAt })
+    this.forceResume = !!force
+    if (this.sessionId) Tab.saveResume(this.sessionId, { cwd: this.cwd, at: this.resumeAt, force: this.forceResume })
     const text = el('span', 'grow')
     const auto = button('Continue automatically', () => { saveSettings({ autoContinue: true }); this.renderResume() }, 'sm')
     this.resumeCard = el('div', 'notice limit', icon('hourglass-medium'), text,
@@ -353,14 +366,14 @@ class Tab {
     this.resumeCard.auto = auto
     this.add(this.resumeCard)
     this.renderResume()
-    notify(`${this.name}: usage limit reached`, settings.autoContinue ? `Claude continues at ${clock(this.resumeAt)}` : `Resets at ${clock(this.resumeAt)}`)
+    notify(`${this.name}: usage limit reached`, this.autoResume ? `Claude continues at ${clock(this.resumeAt)}` : `Resets at ${clock(this.resumeAt)}`)
   }
 
   renderResume() {
     const c = this.resumeCard
     if (!c) return
-    c.auto.hidden = settings.autoContinue
-    c.text.textContent = settings.autoContinue
+    c.auto.hidden = this.autoResume
+    c.text.textContent = this.autoResume
       ? `Usage limit reached. Claude will continue this task at ${clock(this.resumeAt)} (in ${until(this.resumeAt)}).`
       : `Usage limit reached. It resets at ${clock(this.resumeAt)} (in ${until(this.resumeAt)}).`
   }
@@ -369,18 +382,18 @@ class Tab {
     const idle = this.live && !this.busy && !this.permissions && !this.resumeAt && Date.now() - this.lastActive > IDLE_STOP
     if (idle && ![...this.tasks.values()].some(t => t.status === 'running')) { api.stop(this.id); this.live = false }
     if (!this.resumeAt) return
-    if (Date.now() >= this.resumeAt && settings.autoContinue) this.resume()
+    if (Date.now() >= this.resumeAt && this.autoResume) this.resume()
     else this.renderResume()
   }
 
   cancelResume(byUser) {
     if (!this.resumeAt) return
-    const at = this.resumeAt
+    const at = this.resumeAt, force = this.forceResume
     this.resumeAt = 0
     if (this.sessionId) Tab.saveResume(this.sessionId, null)
     const card = this.resumeCard
     card?.replaceChildren(icon('hourglass-medium'), el('span', 'grow', byUser ? 'Automatic continue cancelled' : 'Continued'),
-      button(byUser ? 'Undo' : 'Continue again', () => { card.remove(); byUser ? this.scheduleResume(at - 30000) : this.resume() }, 'ghost sm'))
+      button(byUser ? 'Undo' : 'Continue again', () => { card.remove(); byUser ? this.scheduleResume(at - 30000, force) : this.resume() }, 'ghost sm'))
     card?.classList.add('done')
     this.resumeCard = null
   }
