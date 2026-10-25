@@ -1008,7 +1008,7 @@ function openSettings(section = 'appearance') {
     ]],
     usage: ['Usage', 'gauge', () => [
       row('Continue after a usage limit resets', toggle('autoContinue')),
-      row('Continue message', continueBox, 'Sent when Claude picks a task back up. Leave empty for the default.'),
+      row('Continue message', continueBox, 'Sent when Claude picks a task back up. Leave empty for the default. Set one for a single conversation with Edit message on its limit notice.'),
       row('Codedesk Saver', toggle('saverOn', () => App.tabs.forEach(t => (t.saver = settings.saverOn, App.tabChanged(t)))), 'Picks the model once, when a conversation starts, so the prompt cache is never rebuilt. Skills, slash commands, plan mode, attachments and long prompts always keep your default model.'),
       row('Quick tasks', el('div', 'row', saverWords('saverQuickWords'), select('saverQuickModel', SAVER_MODELS)), 'Short prompts containing these words. Haiku is raised to Sonnet when skills are installed.'),
       row('Heavy tasks', el('div', 'row', saverWords('saverHeavyWords'), select('saverHeavyModel', SAVER_MODELS)), 'Checked first, so "explain the design" counts as heavy.'),

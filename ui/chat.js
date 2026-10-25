@@ -348,7 +348,7 @@ class Tab {
     const text = el('span', 'grow')
     const auto = button('Continue automatically', () => { saveSettings({ autoContinue: true }); this.renderResume() }, 'sm')
     this.resumeCard = el('div', 'notice limit', icon('hourglass-medium'), text,
-      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => openSettings('usage'), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
+      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => this.editContinue(), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
     this.resumeCard.text = text
     this.resumeCard.auto = auto
     this.add(this.resumeCard)
@@ -375,17 +375,29 @@ class Tab {
 
   cancelResume(byUser) {
     if (!this.resumeAt) return
+    const at = this.resumeAt
     this.resumeAt = 0
     if (this.sessionId) Tab.saveResume(this.sessionId, null)
-    this.resumeCard?.replaceChildren(icon('hourglass-medium'), el('span', '', byUser ? 'Automatic continue cancelled' : 'Continued'))
-    this.resumeCard?.classList.add('done')
+    const card = this.resumeCard
+    card?.replaceChildren(icon('hourglass-medium'), el('span', 'grow', byUser ? 'Automatic continue cancelled' : 'Continued'),
+      button(byUser ? 'Undo' : 'Continue again', () => { card.remove(); byUser ? this.scheduleResume(at - 30000) : this.resume() }, 'ghost sm'))
+    card?.classList.add('done')
     this.resumeCard = null
+  }
+
+  get continuePrompt() { return (settings.continuePrompts[this.sessionId] || settings.continuePrompt).trim() || Tab.CONTINUE }
+
+  async editContinue() {
+    const v = await prompt('Continue message for this conversation', settings.continuePrompts[this.sessionId] || '', { multiline: true, placeholder: settings.continuePrompt.trim() || Tab.CONTINUE })
+    if (v == null || !this.sessionId) return
+    const { [this.sessionId]: _, ...rest } = settings.continuePrompts
+    saveSettings({ continuePrompts: v.trim() ? { ...rest, [this.sessionId]: v } : rest })
   }
 
   async resume() {
     this.cancelResume()
     notify(`${this.name}: continuing`, 'Usage limit has reset')
-    await this.send(settings.continuePrompt.trim() || Tab.CONTINUE)
+    await this.send(this.continuePrompt)
   }
 
   static CONTINUE = 'Your usage limit has reset. Continue the task you were working on from where you left off.'
