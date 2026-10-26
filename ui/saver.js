@@ -23,3 +23,22 @@ function routeModel(text, { settings, skills = [], attachments = false, mode = '
   }
   return { model: settings.saverOtherModel, reason: 'everything else' }
 }
+
+function limitedUntil(u) {
+  if (!u) return null
+  const r = u.rate_limits || {}
+  const full = [r.five_hour, r.seven_day, r.seven_day_opus, r.seven_day_sonnet, ...(r.model_scoped || [])]
+    .filter(w => w?.resets_at && w.utilization >= 100).map(w => Date.parse(w.resets_at))
+  return full.length ? Math.max(...full) : 0
+}
+
+function pickAccount(current, usages, now = Date.now()) {
+  const known = usages.map(({ id, u }) => ({ id, u, at: limitedUntil(u) })).filter(x => x.at !== null)
+    .map(x => ({ ...x, at: x.at > now ? x.at : 0 }))
+  const free = known.filter(x => x.at === 0 && x.id !== current)
+    .sort((a, b) => (a.u.rate_limits?.five_hour?.utilization || 0) - (b.u.rate_limits?.five_hour?.utilization || 0))
+  if (free.length) return { id: free[0].id, at: 0 }
+  const mine = known.find(x => x.id === current)
+  const best = known.filter(x => x.id !== current).sort((a, b) => a.at - b.at)[0]
+  return best && (!mine || best.at < mine.at) ? { id: best.id, at: best.at } : null
+}
