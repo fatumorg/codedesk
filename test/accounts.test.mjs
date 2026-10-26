@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { claudeFiles, createAccounts } from '../accounts.mjs'
@@ -31,7 +31,7 @@ test('accounts get their own login and share everything else', async () => {
   assert.deepEqual((await acc.list()).map(a => a.email), ['a1@x', 'a2@x'])
 
   assert.deepEqual(await acc.env('system'), {})
-  assert.deepEqual(await acc.env('nope'), {})
+  await assert.rejects(acc.env('nope'), /Account not found/)
   await assert.rejects(acc.env('../x'))
   const { CLAUDE_CONFIG_DIR: dir } = await acc.env(id)
   assert.ok((await lstat(path.join(dir, 'projects'))).isSymbolicLink())
@@ -51,4 +51,69 @@ test('accounts get their own login and share everything else', async () => {
 
 test('default paths follow Claude Code', () => {
   assert.deepEqual(claudeFiles('/h'), { dir: '/h/.claude', creds: '/h/.claude/.credentials.json', config: '/h/.claude.json' })
+})
+
+async function setup() {
+  const home = await mkdtemp(path.join(tmpdir(), 'cd-acct-'))
+  const main = claudeFiles(home)
+  await mkdir(main.dir, { recursive: true })
+  await loginAs(1)({ CLAUDE_CONFIG_DIR: main.dir })
+  await writeFile(main.config, JSON.stringify({ oauthAccount: { accountUuid: 'u1', organizationUuid: 'o', emailAddress: 'a1@x' }, mcpServers: { m: {} }, projects: { p: {} } }))
+  const acc = createAccounts(main, path.join(home, 'accounts'))
+  const { id } = await acc.add(loginAs(2))
+  return { main, acc, id, dir: path.join(home, 'accounts', id) }
+}
+
+test('accounts keep their record when Claude Code config breaks', async () => {
+  const { acc, dir } = await setup()
+  await writeFile(path.join(dir, '.claude.json'), '{"oauthAcc')
+  let a2 = (await acc.list()).find(a => a.email === 'a2@x')
+  assert.equal(a2.signedIn, true)
+  await writeFile(path.join(dir, '.claude.json'), '{}')
+  a2 = (await acc.list()).find(a => a.email === 'a2@x')
+  assert.equal(a2.signedIn, true)
+})
+
+test('signed-out accounts stay listed and refuse to run', async () => {
+  const { acc, id, dir } = await setup()
+  await rm(path.join(dir, '.credentials.json'))
+  const a2 = (await acc.list()).find(a => a.id === id)
+  assert.equal(a2.signedIn, false)
+  assert.equal(typeof a2.signedOutAt, 'number')
+  await assert.rejects(acc.env(id), /a2@x is signed out\. Sign in again from the account menu\./)
+  await assert.rejects(acc.env('nope'), /Account not found/)
+})
+
+test('env leaves an unreadable config alone', async () => {
+  const { acc, id, dir } = await setup()
+  await writeFile(path.join(dir, '.claude.json'), '{"oauthAcc')
+  await acc.env(id)
+  assert.equal(await readFile(path.join(dir, '.claude.json'), 'utf8'), '{"oauthAcc')
+})
+
+test('concurrent env calls keep the login', async () => {
+  const { acc, id, dir } = await setup()
+  await Promise.all([acc.env(id), acc.env(id), acc.env(id), acc.list()])
+  assert.equal(JSON.parse(await readFile(path.join(dir, '.claude.json'), 'utf8')).oauthAccount.emailAddress, 'a2@x')
+})
+
+test('signing in again revives the signed-out slot', async () => {
+  const { acc, id, dir } = await setup()
+  await rm(path.join(dir, '.credentials.json'))
+  await acc.list()
+  assert.deepEqual(await acc.add(loginAs(2)), { id, email: 'a2@x', revived: true })
+  const list = await acc.list()
+  assert.equal(list.filter(a => a.email === 'a2@x').length, 1)
+  assert.equal(list.find(a => a.id === id).signedIn, true)
+  assert.equal(list.find(a => a.id === id).signedOutAt, undefined)
+  assert.equal((await acc.env(id)).CLAUDE_CONFIG_DIR, dir)
+})
+
+test('migrates accounts added before records existed', async () => {
+  const { main, acc } = await setup()
+  const old = path.join(path.dirname(main.dir), 'accounts', 'legacy')
+  await mkdir(old, { recursive: true })
+  await loginAs(3)({ CLAUDE_CONFIG_DIR: old })
+  assert.ok((await acc.list()).some(a => a.id === 'legacy' && a.email === 'a3@x'))
+  assert.equal(JSON.parse(await readFile(path.join(old, 'codedesk.json'), 'utf8')).email, 'a3@x')
 })
