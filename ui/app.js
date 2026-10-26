@@ -792,7 +792,7 @@ function useGemini(tab) {
   toast('Switched to ' + modelInfo(tab, m).label)
 }
 
-const accountName = id => App.accounts?.find(a => a.id === id)?.email || 'Claude account'
+const accountName = id => App.accounts?.find(a => a.id === id)?.email || (id === 'system' ? 'Claude Code login' : 'Claude account')
 const accountDetail = a => [a.plan && a.plan[0].toUpperCase() + a.plan.slice(1), a.org].filter(Boolean).join(' · ')
 
 async function loadAccount() {
@@ -801,7 +801,7 @@ async function loadAccount() {
   try { s = JSON.parse(r.stdout) } catch {}
   App.account = s
   App.google = g || {}
-  App.accounts = list.filter(a => a.email)
+  App.accounts = list
   const def = App.accounts.find(a => a.id === settings.account)
   $('#account-name').textContent = def?.email || (s.loggedIn
     ? (s.email || s.account?.email || (s.authMethod === 'claude.ai' ? 'Claude account' : s.authMethod))
@@ -815,14 +815,15 @@ $('#account').onclick = e => {
   const def = list.some(a => a.id === settings.account) ? settings.account : 'system'
   menu(e.currentTarget, [
     ...(list.length ? [{ header: 'Default Claude account' }, ...list.map(a => ({
-      label: a.email, detail: accountDetail(a), icon: 'user', checked: a.id === def, run: () => setAccount(null, a.id),
+      label: accountName(a.id), detail: a.signedIn === false ? signedOutDetail(a) : accountDetail(a), icon: a.signedIn === false ? 'warning' : 'user', checked: a.id === def,
+      run: () => a.signedIn === false && a.id !== 'system' ? signInAgain(a) : setAccount(null, a.id),
     }))] : []),
     { label: 'Add another account', icon: 'user-plus', run: addAccount },
     ...(s.loggedIn ? [
       { label: 'Usage and limits', icon: 'gauge', run: () => openUsage() },
       { label: 'Sign out of Claude', detail: `${s.email || 'System login'}, shared with the terminal`, icon: 'sign-out', run: () => App.runCommand('logout') },
     ] : [{ label: 'Sign in to Claude', icon: 'sign-in', run: async () => { toast('Finish signing in in your browser'); await api.cli(['auth', 'login']); loadAccount() } }]),
-    ...(added.length ? [{ label: 'Remove account', icon: 'trash', more: added.map(a => ({ label: a.email, icon: 'x', danger: true, run: () => removeAccount(a) })) }] : []),
+    ...(added.length ? [{ label: 'Remove account', icon: 'trash', more: added.map(a => ({ label: accountName(a.id), icon: 'x', danger: true, run: () => removeAccount(a) })) }] : []),
     '-',
     { header: `Antigravity · ${!g.installed ? 'Not installed' : g.loggedIn ? 'Signed in' : 'Not signed in'}` },
     ...(g.loggedIn ? [] : [{ label: 'Sign in with Google (Antigravity)', icon: 'sign-in', run: signInAgy }]),
@@ -840,6 +841,15 @@ function setAccount(cwd, id) {
   loadAccount()
   App.refreshUsage(App.active)
   toast(cwd ? `${basename(cwd)} now uses ${accountName(id || settings.account)}` : `Projects without their own account now use ${accountName(id)}`)
+}
+const signedOutDetail = a => 'Signed out' + (a.signedOutAt ? ` · since ${clock(a.signedOutAt)}` : '')
+async function signInAgain(a) {
+  toast(`Sign in as ${a.email} in your browser`)
+  const r = await api.addAccount()
+  if (r.error) { toast(r.error, 'err'); return r }
+  await loadAccount()
+  toast(r.revived ? `Signed in again as ${r.email}` : `Added ${r.email}`)
+  return r
 }
 async function addAccount() {
   toast('Finish signing in in your browser. Switch accounts on claude.ai first to add a different one.')
@@ -877,7 +887,7 @@ $('#chat-path').onclick = e => {
     { label: 'Add folder to workspace…', icon: 'plus', run: () => App.runCommand('add-dir') },
     ...(App.accounts?.length > 1 ? [{ label: 'Claude account', detail: accountName(tab.account) + (settings.projectAccounts[tab.cwd] ? '' : ' (default)'), icon: 'user', more: [
       { label: 'Use the default account', icon: 'user', checked: !settings.projectAccounts[tab.cwd], run: () => setAccount(tab.cwd, null) },
-      ...App.accounts.map(a => ({ label: a.email, detail: accountDetail(a), icon: 'user', checked: settings.projectAccounts[tab.cwd] === a.id, run: () => setAccount(tab.cwd, a.id) })),
+      ...App.accounts.map(a => ({ label: accountName(a.id), detail: accountDetail(a), icon: 'user', checked: settings.projectAccounts[tab.cwd] === a.id, run: () => setAccount(tab.cwd, a.id) })),
     ] }] : []),
     ...(tab.addDirs.length ? ['-', { header: 'Workspace folders' }] : []),
     ...tab.addDirs.map(d => ({ label: basename(d), detail: d.replace(App.info.home, '~'), icon: 'folder', more: [

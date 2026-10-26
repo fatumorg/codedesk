@@ -102,11 +102,20 @@ class Tab {
     this.startedAccount = this.account
     this.inited = false
     this.lastActive = Date.now()
-    await api.start(this.id, {
-      cwd: this.cwd, account: this.account, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
-      effort: this.effort === 'ultracode' ? 'max' : this.effort || undefined, additionalDirectories: this.addDirs,
-      saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents }, ...extra,
-    })
+    try {
+      await api.start(this.id, {
+        cwd: this.cwd, account: this.account, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
+        effort: this.effort === 'ultracode' ? 'max' : this.effort || undefined, additionalDirectories: this.addDirs,
+        saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents }, ...extra,
+      })
+    } catch (e) {
+      this.live = false
+      this.startedAccount = null
+      const text = String(e?.message || e).replace(/^Error invoking remote method '\w+': (Error: )?/, '')
+      this.add(el('div', 'notice err', icon('warning'), text))
+      if (/signed out/.test(text)) this.loginPrompt()
+      return
+    }
     const flags = { ...(this.fast && { fastMode: true }), ...(this.effort === 'ultracode' && { ultracode: true, effortLevel: 'max' }) }
     if (Object.keys(flags).length) api.control(this.id, 'applyFlagSettings', flags).catch(() => toast('Ultracode is not available for this model or account', 'err'))
   }
@@ -759,6 +768,16 @@ class Tab {
   }
 
   loginPrompt() {
+    const acct = App.accounts?.find(a => a.id === this.account)
+    if (acct && acct.id !== 'system') {
+      const b = button(`Sign in as ${accountName(acct.id)}`, async () => {
+        b.disabled = true
+        const r = await signInAgain(acct)
+        b.disabled = false
+        if (r.revived && r.id === this.account) this.start()
+      }, 'primary', 'sign-in')
+      return this.add(b)
+    }
     const b = button('Sign in to Claude', async () => {
       b.disabled = true
       b.querySelector('span').textContent = 'Finish signing in in your browser…'
