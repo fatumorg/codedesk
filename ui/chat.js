@@ -364,7 +364,7 @@ class Tab {
     const text = el('span', 'grow')
     const auto = button('Continue automatically', () => { saveSettings({ autoContinue: true }); this.renderResume() }, 'sm')
     this.resumeCard = el('div', 'notice limit', icon('hourglass-medium'), text,
-      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => this.editContinue(), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
+      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => this.editContinue(), 'ghost sm'), button('Run first', () => this.editFirst(), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
     this.resumeCard.text = text
     this.resumeCard.auto = auto
     this.add(this.resumeCard)
@@ -410,10 +410,26 @@ class Tab {
     saveSettings({ continuePrompts: v.trim() ? { ...rest, [this.sessionId]: v } : rest })
   }
 
+  get continueFirst() { return (settings.continueFirst[this.sessionId] || '').split('\n').map(l => l.trim()).filter(Boolean) }
+
+  async editFirst() {
+    const v = await prompt('Run before continuing, one per line', settings.continueFirst[this.sessionId] || '', { multiline: true, placeholder: '/compact' })
+    if (v == null || !this.sessionId) return
+    const { [this.sessionId]: _, ...rest } = settings.continueFirst
+    saveSettings({ continueFirst: v.trim() ? { ...rest, [this.sessionId]: v } : rest })
+  }
+
+  idle() {
+    return new Promise(done => {
+      const t = setInterval(() => { if (!this.busy || !this.view.isConnected) { clearInterval(t); done() } }, 500)
+    })
+  }
+
   async resume() {
     this.cancelResume()
     notify(`${this.name}: continuing`, 'Usage limit has reset')
-    await this.send(this.continuePrompt)
+    for (const cmd of this.continueFirst) { await this.send(cmd); await this.idle() }
+    if (this.view.isConnected) await this.send(this.continuePrompt)
   }
 
   static CONTINUE = 'Your usage limit has reset. Continue the task you were working on from where you left off.'
