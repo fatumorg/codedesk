@@ -76,9 +76,14 @@ class Tab {
     this.accountPick = null
     this.title = 'New conversation'
     this.setBusy(false)
+    if (!sessionId) Object.assign(this, { model: settings.defaultModel, effort: settings.defaultEffort, ultracode: settings.defaultUltracode, saver: settings.saverOn })
     if (sessionId && history) {
       const info = (await api.listSessions(this.cwd)).find(s => s.sessionId === sessionId)
-      if (info?.model) this.model = info.model
+      const p = settings.sessionPrefs[sessionId]
+      this.model = p?.model || info?.model || this.model
+      this.effort = p?.effort || settings.defaultEffort
+      this.ultracode = p?.ultracode ?? settings.defaultUltracode
+      this.saver = false
       const msgs = await api.history(sessionId, this.cwd)
       this.loadingHistory = true
       for (const m of msgs) this.handle({ ...m, history: true })
@@ -104,8 +109,13 @@ class Tab {
 
   static async fork(id, cwd, upToMessageId) {
     const next = (await api.forkSession(id, cwd, upToMessageId)).sessionId
-    if (settings.sessionAccounts[id]) saveSettings({ sessionAccounts: { ...settings.sessionAccounts, [next]: settings.sessionAccounts[id] } })
+    const copy = k => settings[k][id] ? { [k]: { ...settings[k], [next]: settings[k][id] } } : {}
+    saveSettings({ ...copy('sessionAccounts'), ...copy('sessionPrefs') })
     return next
+  }
+
+  savePrefs() {
+    if (this.sessionId) saveSettings({ sessionPrefs: { ...settings.sessionPrefs, [this.sessionId]: { model: this.model, effort: this.effort, ultracode: this.ultracode } } })
   }
 
   async start(extra = {}) {
@@ -224,6 +234,7 @@ class Tab {
     switch (m.subtype) {
       case 'init':
         this.sessionId = m.session_id
+        this.savePrefs()
         if (this.accountPick) { saveSettings({ sessionAccounts: { ...settings.sessionAccounts, [this.sessionId]: this.accountPick } }); this.accountPick = null }
         this.meta.mcp = m.mcp_servers
         this.meta.skills = m.skills || []
