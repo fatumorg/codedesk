@@ -26,6 +26,7 @@ const App = {
     autosize()
     renderAttachments()
     this.tabChanged(tab)
+    if (tab.account !== App.usageAccount) App.refreshUsage(tab)
     this.refreshSessions()
     if (settings.panel) Panels.render()
     tab.scroll(true)
@@ -65,7 +66,7 @@ const App = {
     document.body.classList.toggle('no-project', !tab.cwd)
     $('#project-name').textContent = tab.cwd ? basename(tab.cwd) : 'Choose a project'
     $('#chat-title').textContent = tab.cwd ? tab.title : ''
-    $('#chat-path').textContent = tab.cwd ? tab.cwd.replace(App.info.home, '~') + (tab.addDirs.length ? ` +${tab.addDirs.length}` : '') : ''
+    $('#chat-path').textContent = tab.cwd ? tab.cwd.replace(App.info.home, '~') + (tab.addDirs.length ? ` +${tab.addDirs.length}` : '') + (App.accounts?.length > 1 ? ` · ${accountName(tab.account)}` : '') : ''
     $('#chat-path').title = [tab.cwd, ...tab.addDirs].filter(Boolean).join('\n')
     document.title = tab.cwd ? `${tab.title} ·${tab.name}` : 'Codedesk'
     const agentName = /^gemini/i.test(tab.model || '') ? modelInfo(tab).label : 'Claude'
@@ -190,7 +191,7 @@ const App = {
     diff: { description: 'Show changed files', run: () => Panels.show('changes') },
     tasks: { description: 'Show to-dos and background tasks', run: () => Panels.show('tasks') },
     login: { description: 'Sign in to Claude', run: t => t.loginPrompt() },
-    logout: { description: 'Sign out', run: async () => { await api.forgetAccount(); await api.cli(['auth', 'logout']); toast('Signed out'); loadAccount() } },
+    logout: { description: 'Sign out', run: async () => { await api.cli(['auth', 'logout']); toast('Signed out'); loadAccount() } },
     export: { description: 'Export conversation as Markdown', run: t => t.exportMarkdown() },
     help: { description: 'Keyboard shortcuts and tips', run: () => openHelp() },
     usage: { description: 'Plan usage, limits and what used them', run: t => openUsage(t) },
@@ -684,8 +685,10 @@ $('#project-switch').onclick = async e => {
 App.usage = null
 App.refreshUsage = debounce(async tab => {
   const box = $('.usage-modal .usage')
-  const u = await api.usage(tab?.live ? tab.id : null, !!box).catch(() => null)
+  const account = tab?.account || settings.account
+  const u = await api.usage(tab?.live ? tab.id : null, !!box, account).catch(() => null)
   if (!u) return
+  App.usageAccount = account
   App.usage = u
   renderUsageMeter()
   if (box?.isConnected) box.replaceChildren(...usageView(u, tab))
@@ -770,8 +773,8 @@ async function openUsage(tab = App.active) {
   const body = el('div', 'usage stack', el('p', 'muted', 'Loading usage…'))
   const m = modal('Usage and limits', body, { wide: true })
   m.box.parentElement.classList.add('usage-modal')
-  const u = await api.usage(tab?.live ? tab.id : null, true).catch(() => null)
-  if (u) { App.usage = u; renderUsageMeter() }
+  const u = await api.usage(tab?.live ? tab.id : null, true, tab?.account || settings.account).catch(() => null)
+  if (u) { App.usage = u; App.usageAccount = tab?.account || settings.account; renderUsageMeter() }
   body.replaceChildren(...usageView(u, tab))
 }
 $('#open-usage').onclick = () => openUsage()
@@ -789,34 +792,37 @@ function useGemini(tab) {
   toast('Switched to ' + modelInfo(tab, m).label)
 }
 
+const accountName = id => App.accounts?.find(a => a.id === id)?.email || 'Claude account'
+const accountDetail = a => [a.plan && a.plan[0].toUpperCase() + a.plan.slice(1), a.org].filter(Boolean).join(' · ')
+
 async function loadAccount() {
   const [r, g, list] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({})), api.accounts().catch(() => [])])
   let s = {}
   try { s = JSON.parse(r.stdout) } catch {}
   App.account = s
   App.google = g || {}
-  App.accounts = list
-  const label = s.loggedIn
+  App.accounts = list.filter(a => a.email)
+  const def = App.accounts.find(a => a.id === settings.account)
+  $('#account-name').textContent = def?.email || (s.loggedIn
     ? (s.email || s.account?.email || (s.authMethod === 'claude.ai' ? 'Claude account' : s.authMethod))
-    : g?.loggedIn ? 'Antigravity' : 'Sign in'
-  $('#account-name').textContent = label
+    : g?.loggedIn ? 'Antigravity' : 'Sign in')
+  App.tabs.forEach(t => App.tabChanged(t))
 }
 $('#account').onclick = e => {
   const s = App.account || {}
   const g = App.google || {}
-  const list = App.accounts || [], others = list.filter(a => !a.active)
+  const list = App.accounts || [], added = list.filter(a => a.id !== 'system')
+  const def = list.some(a => a.id === settings.account) ? settings.account : 'system'
   menu(e.currentTarget, [
-    ...(list.length ? [{ header: 'Claude accounts' }, ...list.map(a => ({
-      label: a.email, detail: [a.plan && a.plan[0].toUpperCase() + a.plan.slice(1), a.org].filter(Boolean).join(' · '), icon: 'user', checked: a.active, run: () => switchAccount(a),
+    ...(list.length ? [{ header: 'Default Claude account' }, ...list.map(a => ({
+      label: a.email, detail: accountDetail(a), icon: 'user', checked: a.id === def, run: () => setAccount(null, a.id),
     }))] : []),
+    { label: 'Add another account', icon: 'user-plus', run: addAccount },
     ...(s.loggedIn ? [
-      { label: 'Add another account', icon: 'user-plus', run: addAccount },
       { label: 'Usage and limits', icon: 'gauge', run: () => openUsage() },
-      { label: 'Sign out of Claude', icon: 'sign-out', run: () => App.runCommand('logout') },
-    ] : [{ label: 'Sign in to Claude', icon: 'sign-in', run: addAccount }]),
-    ...(others.length ? [{ label: 'Remove account', icon: 'trash', more: others.map(a => ({
-      label: a.email, icon: 'x', danger: true, run: async () => { await api.forgetAccount(a.id); loadAccount() },
-    })) }] : []),
+      { label: 'Sign out of Claude', detail: `${s.email || 'System login'}, shared with the terminal`, icon: 'sign-out', run: () => App.runCommand('logout') },
+    ] : [{ label: 'Sign in to Claude', icon: 'sign-in', run: async () => { toast('Finish signing in in your browser'); await api.cli(['auth', 'login']); loadAccount() } }]),
+    ...(added.length ? [{ label: 'Remove account', icon: 'trash', more: added.map(a => ({ label: a.email, icon: 'x', danger: true, run: () => removeAccount(a) })) }] : []),
     '-',
     { header: `Antigravity · ${!g.installed ? 'Not installed' : g.loggedIn ? 'Signed in' : 'Not signed in'}` },
     ...(g.loggedIn ? [] : [{ label: 'Sign in with Google (Antigravity)', icon: 'sign-in', run: signInAgy }]),
@@ -825,23 +831,31 @@ $('#account').onclick = e => {
   ])
 }
 
-async function accountChanged(msg) {
-  restartIdleTabs()
-  await loadAccount()
+function setAccount(cwd, id) {
+  if (!cwd) saveSettings({ account: id })
+  else {
+    const { [cwd]: _, ...rest } = settings.projectAccounts
+    saveSettings({ projectAccounts: id ? { ...rest, [cwd]: id } : rest })
+  }
+  loadAccount()
   App.refreshUsage(App.active)
-  toast(msg)
-}
-async function switchAccount(a) {
-  if (a.active) return
-  try { await api.switchAccount(a.id) } catch (e) { return toast(String(e.message || e), 'err') }
-  accountChanged(`Switched to ${a.email}`)
+  toast(cwd ? `${basename(cwd)} now uses ${accountName(id || settings.account)}` : `Projects without their own account now use ${accountName(id)}`)
 }
 async function addAccount() {
-  await api.accounts()
   toast('Finish signing in in your browser. Switch accounts on claude.ai first to add a different one.')
-  const r = await api.cli(['auth', 'login'])
-  if (r.code) return toast('Sign-in failed. Run `claude auth login` in a terminal.', 'err')
-  accountChanged('Signed in as ' + ((await api.accounts()).find(a => a.active)?.email || 'new account'))
+  const r = await api.addAccount()
+  if (r.error) return toast(r.error, 'err')
+  await loadAccount()
+  toast(`Added ${r.email}`)
+}
+async function removeAccount(a) {
+  await api.removeAccount(a.id)
+  saveSettings({
+    projectAccounts: Object.fromEntries(Object.entries(settings.projectAccounts).filter(([, id]) => id !== a.id)),
+    ...(settings.account === a.id && { account: 'system' }),
+  })
+  await loadAccount()
+  toast(`Removed ${a.email}`)
 }
 
 async function renameConversation(tab, name) {
@@ -861,6 +875,10 @@ $('#chat-path').onclick = e => {
     { label: 'Open terminal here', icon: 'terminal-window', run: () => Panels.show('terminal') },
     { label: 'Copy path', icon: 'copy', run: () => copy(tab.cwd) },
     { label: 'Add folder to workspace…', icon: 'plus', run: () => App.runCommand('add-dir') },
+    ...(App.accounts?.length > 1 ? [{ label: 'Claude account', detail: accountName(tab.account) + (settings.projectAccounts[tab.cwd] ? '' : ' (default)'), icon: 'user', more: [
+      { label: 'Use the default account', icon: 'user', checked: !settings.projectAccounts[tab.cwd], run: () => setAccount(tab.cwd, null) },
+      ...App.accounts.map(a => ({ label: a.email, detail: accountDetail(a), icon: 'user', checked: settings.projectAccounts[tab.cwd] === a.id, run: () => setAccount(tab.cwd, a.id) })),
+    ] }] : []),
     ...(tab.addDirs.length ? ['-', { header: 'Workspace folders' }] : []),
     ...tab.addDirs.map(d => ({ label: basename(d), detail: d.replace(App.info.home, '~'), icon: 'folder', more: [
       { label: 'Open in file manager', icon: 'folder-open', run: () => api.openPath(d) },

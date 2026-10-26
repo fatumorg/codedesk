@@ -95,12 +95,15 @@ class Tab {
     saveSettings({ workspaces: dirs.length ? { ...rest, [this.cwd]: dirs } : rest })
   }
 
+  get account() { return settings.projectAccounts[this.cwd] || settings.account }
+
   async start(extra = {}) {
     this.live = true
+    this.startedAccount = this.account
     this.inited = false
     this.lastActive = Date.now()
     await api.start(this.id, {
-      cwd: this.cwd, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
+      cwd: this.cwd, account: this.account, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
       effort: this.effort === 'ultracode' ? 'max' : this.effort || undefined, additionalDirectories: this.addDirs,
       saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents }, ...extra,
     })
@@ -108,7 +111,7 @@ class Tab {
     if (Object.keys(flags).length) api.control(this.id, 'applyFlagSettings', flags).catch(() => toast('Ultracode is not available for this model or account', 'err'))
   }
 
-  async ensureLive() { if (!this.live && this.cwd) await this.start() }
+  async ensureLive() { if (this.cwd && !this.busy && (!this.live || this.startedAccount !== this.account)) await this.start() }
 
   static cachedSkills() { try { return JSON.parse(localStorage.getItem('skills') || '[]') } catch { return [] } }
 
@@ -336,7 +339,7 @@ class Tab {
   }
 
   async limitReset() {
-    const r = (await api.usage(this.id).catch(() => null))?.rate_limits || {}
+    const r = (await api.usage(this.id, false, this.account).catch(() => null))?.rate_limits || {}
     const full = [r.five_hour, r.seven_day, r.seven_day_opus, r.seven_day_sonnet, ...(r.model_scoped || [])]
       .filter(w => w?.resets_at && w.utilization >= 100).map(w => Date.parse(w.resets_at))
     return full.length ? Math.max(...full) : 0

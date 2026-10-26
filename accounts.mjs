@@ -1,65 +1,75 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
 export function claudeFiles(home, env = {}) {
-  const dir = env.CLAUDE_CONFIG_DIR
+  const dir = env.CLAUDE_CONFIG_DIR || path.join(home, '.claude')
   return {
-    creds: path.join(dir || path.join(home, '.claude'), '.credentials.json'),
-    config: dir ? path.join(dir, '.claude.json') : path.join(home, '.claude.json'),
+    dir,
+    creds: path.join(dir, '.credentials.json'),
+    config: env.CLAUDE_CONFIG_DIR ? path.join(dir, '.claude.json') : path.join(home, '.claude.json'),
   }
 }
 
-const readJson = f => fs.readFile(f, 'utf8').then(JSON.parse)
+const SHARED_SKIP = /^(\.credentials\.json|\.claude\.json|daemon.*|.*\.lock)$/
+const readJson = f => fs.readFile(f, 'utf8').then(JSON.parse).catch(() => ({}))
 async function writeJson(f, data) {
-  const tmp = `${f}.${process.pid}.tmp`
+  const tmp = `${f}.${randomUUID()}.tmp`
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 })
   await fs.rename(tmp, f)
 }
 
-async function current(files) {
-  const [creds, config] = await Promise.all([readJson(files.creds).catch(() => ({})), readJson(files.config).catch(() => ({}))])
-  const oauth = creds.claudeAiOauth, acct = config.oauthAccount
-  if (!oauth?.refreshToken || !acct?.accountUuid) return null
-  return { id: `${acct.accountUuid}/${acct.organizationUuid}`, oauth, account: acct }
+async function profile(files) {
+  const [creds, config] = await Promise.all([readJson(files.creds), readJson(files.config)])
+  const oauth = creds.claudeAiOauth, a = config.oauthAccount
+  if (!oauth?.refreshToken || !a?.accountUuid) return null
+  return { key: `${a.accountUuid}/${a.organizationUuid}`, email: a.emailAddress, org: a.organizationName, plan: oauth.subscriptionType }
 }
 
-export function createAccounts(files, storeFile) {
-  let queue = Promise.resolve()
-  const locked = fn => (queue = queue.then(fn, fn))
-  const load = () => readJson(storeFile).catch(() => ({}))
-  const save = async store => { await fs.mkdir(path.dirname(storeFile), { recursive: true }); await writeJson(storeFile, store) }
-  const capture = async store => {
-    const c = await current(files)
-    if (c) store[c.id] = { oauth: c.oauth, account: c.account }
-    return c?.id
+export function createAccounts(main, root) {
+  const filesOf = id => {
+    if (!/^[\w-]+$/.test(id)) throw new Error('Invalid account id')
+    return claudeFiles(null, { CLAUDE_CONFIG_DIR: path.join(root, id) })
   }
-  const summary = (store, active) => Object.entries(store).map(([id, { oauth, account }]) => ({
-    id, active: id === active, email: account.emailAddress, org: account.organizationName, plan: oauth.subscriptionType,
-  }))
+
+  async function list() {
+    const ids = await fs.readdir(root).catch(() => [])
+    const added = await Promise.all(ids.map(async id => ({ id, ...(await profile(filesOf(id))) })))
+    return [{ id: 'system', ...(await profile(main)) }, ...added.filter(a => a.key)]
+  }
+
+  async function remove(id) {
+    if (id === 'system') throw new Error('The system account is managed by `claude auth`')
+    const { dir } = filesOf(id)
+    for (const d of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) if (d.isSymbolicLink()) await fs.unlink(path.join(dir, d.name))
+    await fs.rm(dir, { recursive: true, force: true })
+  }
 
   return {
-    list: () => locked(async () => {
-      const store = await load()
-      const active = await capture(store)
-      if (active) await save(store)
-      return summary(store, active)
-    }),
-    switchTo: id => locked(async () => {
-      const store = await load()
-      const active = await capture(store)
-      const next = store[id]
-      if (!next) throw new Error('Unknown account')
-      await save(store)
-      if (id === active) return
-      const [creds, config] = await Promise.all([readJson(files.creds).catch(() => ({})), readJson(files.config).catch(() => ({}))])
-      await writeJson(files.creds, { ...creds, claudeAiOauth: next.oauth })
-      await writeJson(files.config, { ...config, oauthAccount: next.account })
-    }),
-    forget: id => locked(async () => {
-      const store = await load()
-      delete store[id]
-      await save(store)
-    }),
-    activeId: () => current(files).then(c => c?.id),
+    list,
+    remove,
+    async add(login) {
+      const before = await list()
+      const id = randomUUID(), files = filesOf(id)
+      await fs.mkdir(files.dir, { recursive: true, mode: 0o700 })
+      const r = await login({ CLAUDE_CONFIG_DIR: files.dir })
+      const p = await profile(files)
+      const dupe = p && before.find(a => a.key === p.key)
+      if (p && !dupe) return { id, email: p.email }
+      await remove(id)
+      return { error: dupe ? `${p.email} is already added` : r?.stderr?.trim() || 'Sign-in did not finish' }
+    },
+    async env(id) {
+      if (!id || id === 'system') return {}
+      const files = filesOf(id)
+      if (!(await profile(files))) return {}
+      for (const d of await fs.readdir(main.dir, { withFileTypes: true }).catch(() => [])) {
+        if (SHARED_SKIP.test(d.name)) continue
+        await fs.symlink(path.join(main.dir, d.name), path.join(files.dir, d.name), d.isDirectory() ? 'junction' : 'file').catch(() => {})
+      }
+      const [shared, own] = await Promise.all([readJson(main.config), readJson(files.config)])
+      await writeJson(files.config, { ...own, mcpServers: shared.mcpServers, projects: shared.projects })
+      return { CLAUDE_CONFIG_DIR: files.dir }
+    },
   }
 }

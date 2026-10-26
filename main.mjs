@@ -118,6 +118,7 @@ async function startGeminiSession(wc, tab, opts) {
   const send = (ch, data) => { if (!wc.isDestroyed()) wc.send(ch, { tab, ...data }) }
   const s = {
     isGemini: true,
+    account: opts.account,
     sessionId: existing ? opts.resume : crypto.randomUUID(),
     cwd: opts.cwd,
     model: opts.model,
@@ -160,29 +161,30 @@ async function startGeminiSession(wc, tab, opts) {
   })
 }
 
-function saverOptions(saver = {}) {
+function saverOptions(saver = {}, accountEnv) {
   const extra = { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' }
   if (['sonnet', 'haiku'].includes(saver.subagentModel)) extra.CLAUDE_CODE_SUBAGENT_MODEL = saver.subagentModel
   const pct = +saver.compactAt
   if (saver.compactAt && Number.isInteger(pct) && pct >= 1 && pct <= 100) extra.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(pct)
   const turns = +saver.maxTurns
   return {
-    env: { ...process.env, ...extra },
+    env: { ...process.env, ...extra, ...accountEnv },
     ...(saver.maxTurns && Number.isInteger(turns) && turns > 0 && { maxTurns: turns }),
     ...(saver.noSubagents === true && { disallowedTools: ['Agent', 'Task'] }),
   }
 }
 
-function startSession(wc, tab, opts) {
+async function startSession(wc, tab, opts) {
   const { cwd, resume, model, permissionMode, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
   if (!existsSync(cwd)) return wc.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
   if (isGemini(model)) return startGeminiSession(wc, tab, opts)
+  const accountEnv = await accounts().env(opts.account)
   const k = `${wc.id}:${tab}`
   stopSession(k)
   const inbox = []
   let wake = null
   const pending = new Map()
-  const s = { q: null, pending, closed: false, push: m => { inbox.push(m); wake?.() } }
+  const s = { q: null, pending, closed: false, account: opts.account, push: m => { inbox.push(m); wake?.() } }
   async function* prompts() {
     while (!s.closed) {
       if (inbox.length) yield inbox.shift()
@@ -208,7 +210,7 @@ function startSession(wc, tab, opts) {
       enableFileCheckpointing: true,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       tools: { type: 'preset', preset: 'claude_code' },
-      ...saverOptions(opts.saver),
+      ...saverOptions(opts.saver, accountEnv),
       settingSources: ['user', 'project', 'local'],
       stderr: line => send('claude:stderr', { line }),
       canUseTool: (toolName, input, { signal, suggestions, decisionReason, title }) =>
@@ -257,7 +259,7 @@ handle('control', async (e, tab, method, ...args) => {
   const s = sessions.get(key(e, tab))
   if (!s || !CONTROL.has(method)) return null
   if (method === 'setModel' && isGemini(args[0]) !== !!s.isGemini) {
-    startSession(e.sender, tab, { cwd: s.cwd, model: args[0], permissionMode: s.permissionMode, effort: s.effort })
+    startSession(e.sender, tab, { cwd: s.cwd, model: args[0], permissionMode: s.permissionMode, effort: s.effort, account: s.account })
     return null
   }
   return s.q[method]?.(...args) ?? null
@@ -268,11 +270,11 @@ handle('permit', (e, tab, id, result) => {
 })
 
 const idle = new Promise(() => {})
-handle('usage', async (e, tab, full) => {
+handle('usage', async (e, tab, full, account) => {
   const s = sessions.get(key(e, tab))
   if (s?.isGemini) return null
   const live = s?.q
-  const q = live || query({ prompt: (async function* () { await idle })(), options: { cwd: homedir(), pathToClaudeCodeExecutable: claudePath } })
+  const q = live || query({ prompt: (async function* () { await idle })(), options: { cwd: homedir(), pathToClaudeCodeExecutable: claudePath, env: { ...process.env, ...(await accounts().env(account)) } } })
   try { return await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: !full }) }
   catch { return null }
   finally { if (!live) q.close() }
@@ -349,11 +351,11 @@ handle('git', (_, cwd, args) => run('git', args, { cwd }))
 handle('runShell', (_, cwd, command) =>
   run(win32 ? 'powershell.exe' : process.env.SHELL || '/bin/sh', win32 ? ['-NoProfile', '-Command', command] : ['-c', command], { cwd }))
 handle('cli', (_, args) => run(claudePath || 'claude', args, { timeout: 600000 }))
-let accounts
-const accountStore = () => (accounts ||= createAccounts(claudeFiles(homedir(), process.env), path.join(app.getPath('userData'), 'accounts.json')))
-handle('accounts', () => accountStore().list())
-handle('switchAccount', (_, id) => accountStore().switchTo(id))
-handle('forgetAccount', async (_, id) => accountStore().forget(id || await accountStore().activeId()))
+let accountStore
+const accounts = () => (accountStore ||= createAccounts(claudeFiles(homedir(), process.env), path.join(app.getPath('userData'), 'accounts')))
+handle('accounts', () => accounts().list())
+handle('addAccount', () => accounts().add(env => run(claudePath || 'claude', ['auth', 'login'], { timeout: 600000, env: { ...process.env, ...env } })))
+handle('removeAccount', (_, id) => accounts().remove(id))
 handle('appendMemory', async (_, file, text) => {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const prev = await fs.readFile(file, 'utf8').catch(() => '')
