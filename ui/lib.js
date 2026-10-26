@@ -46,7 +46,7 @@ const DEFAULTS = {
   theme: 'system', palette: 'warm', accent: 'terracotta', accentCustom: '#c96442', uiFont: 'geist', proseFont: 'serif', monoFont: 'geist',
   density: 'comfortable', radius: 'soft', fontSize: 14, chatWidth: 780, motion: true, customCss: '',
   showThinking: true, expandTools: false, sounds: false, enterSends: true, notifications: true, autoContinue: true, continuePrompt: '', continuePrompts: {}, continueFirst: {}, account: 'system', projectAccounts: {}, sessionAccounts: {}, saverModel: '', subagentModel: '', allowSubagents: true, compactAt: '', maxTurns: '', saverOn: false, saverQuickWords: 'explain, what is, what does, list, where is, rename, typo, format, summarize, translate', saverQuickModel: 'haiku', saverHeavyWords: 'design, architect, debug, refactor, migrate, implement, plan, security, review, investigate, fix', saverHeavyModel: 'opus', saverOtherModel: 'sonnet', editor: 'code',
-  defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium',
+  defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium', defaultUltracode: false,
   panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], workspaces: {}, v: 2,
 }
 const ACCENTS = {
@@ -68,6 +68,7 @@ const settings = (() => {
     if (saved.serifProse === false) saved.proseFont = 'sans'
     for (const k of ['defaultMode', 'defaultModel', 'defaultEffort', 'serifProse']) delete saved[k]
   }
+  if (saved.defaultEffort === 'ultracode') Object.assign(saved, { defaultEffort: 'xhigh', defaultUltracode: true })
   return { ...DEFAULTS, ...saved, v: 2 }
 })()
 function saveSettings(patch) {

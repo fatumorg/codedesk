@@ -424,7 +424,7 @@ const FALLBACK_MODELS = [
   { value: 'opus', description: 'Opus 5.5 · For complex work and everyday tasks', supportsFastMode: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'claude-fable-5-1[1m]', description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'sonnet', description: 'Sonnet 5.5 · Most efficient for simpler tasks', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  { value: 'haiku', description: 'Haiku 5.5 · Fastest for quick answers', supportsEffort: false },
+  { value: 'haiku', description: 'Haiku 5.5 · Fastest for quick answers', supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
 ]
 const MORE_MODELS = [
   ['claude-fable-5', 'Fable 5'], ['claude-sonnet-5', 'Sonnet 5'], ['claude-haiku-4-5-20251001', 'Haiku 4.5'], ['claude-opus-5', 'Opus 5'], ['claude-opus-4-8', 'Opus 4.8'], ['claude-opus-4-7', 'Opus 4.7'],
@@ -447,6 +447,24 @@ function modelInfo(tab, value = tab.model) {
   return { value, label: more?.[1] || value || 'Opus', detail: '' }
 }
 
+function defaultEffortFor(m) {
+  const id = m?.resolvedModel || m?.value || ''
+  return /^(opus|sonnet|haiku)$|(opus|sonnet|haiku)-5-5/.test(id) ? 'medium' : /opus-4-7/.test(id) ? 'xhigh' : 'high'
+}
+function effortLevels(tab) {
+  const supported = modelInfo(tab).supportedEffortLevels
+  return EFFORTS.filter(l => !supported || supported.includes(l.value))
+}
+function shownEffort(tab) {
+  const levels = effortLevels(tab), i = EFFORTS.findIndex(l => l.value === tab.effort)
+  return [...levels].reverse().find(l => EFFORTS.indexOf(l) <= i) || levels[0] || EFFORTS[1]
+}
+const supportsUltracode = tab => !!modelInfo(tab).supportedEffortLevels?.includes('xhigh')
+function rainbowText(text) {
+  return el('span', 'rainbow', ...[...text].map((c, i) => { const s = el('span', '', c); s.style.setProperty('--i', i); return s }))
+}
+const effortLabel = l => l.value === 'max' ? rainbowText(l.label) : el('span', l.value === 'xhigh' ? 'shimmer' : '', l.label)
+
 function renderChips(tab) {
   const mode = MODES.find(m => m.value === tab.mode) || MODES[0]
   $('#mode-chip').replaceChildren(icon(mode.icon), el('span', '', mode.label))
@@ -454,8 +472,8 @@ function renderChips(tab) {
   const model = modelInfo(tab)
   $('#model-chip').replaceChildren(el('span', '', tab.saver ? `Saver · ${model.label}` : model.label), icon('caret-down'))
   $('#model-chip').title = tab.saver && tab.routeWhy ? `Codedesk Saver chose this: ${tab.routeWhy}` : ''
-  const effort = EFFORTS.find(l => l.value === tab.effort) || EFFORTS[1]
-  $('#effort-chip').replaceChildren(icon(effort.value === 'ultracode' ? 'sparkle' : 'brain'), el('span', '', effort.label))
+  const effort = shownEffort(tab)
+  $('#effort-chip').replaceChildren(icon('brain'), effortLabel(effort), ...(tab.ultracode && supportsUltracode(tab) ? [icon('sparkle')] : []))
   $('#effort-chip').className = 'chip effort-chip lvl-' + effort.value
   $('#effort-chip').hidden = model.supportsEffort === false || (!!model.description && !model.supportsEffort && !model.supportedEffortLevels)
   const ac = $('#account-chip')
@@ -485,11 +503,16 @@ function setModel(tab, value) {
   App.tabChanged(tab)
 }
 function setEffort(tab, value) {
-  const was = tab.effort
   tab.effort = value
-  const flags = value === 'ultracode' ? { effortLevel: 'max', ultracode: true } : { effortLevel: value, ...(was === 'ultracode' && { ultracode: false }) }
-  if (tab.live) api.control(tab.id, 'applyFlagSettings', flags).catch(() => toast('Ultracode is not available for this model or account', 'err'))
+  if (tab.live) api.control(tab.id, 'applyFlagSettings', { effortLevel: value, ...(tab.ultracode && { ultracode: true }) }).catch(e => toast(String(e.message || e), 'err'))
   App.tabChanged(tab)
+}
+async function setUltracode(tab, on) {
+  tab.ultracode = on
+  App.tabChanged(tab)
+  if (!tab.live) return
+  try { await api.control(tab.id, 'applyFlagSettings', { ultracode: on }) }
+  catch { tab.ultracode = !on; App.tabChanged(tab); toast('Ultracode is not available for this model or account', 'err') }
 }
 
 $('#mode-chip').onclick = e => {
@@ -538,27 +561,30 @@ $('#model-chip').onclick = e => {
 }
 $('#effort-chip').onclick = e => {
   const tab = App.active
-  const supported = modelInfo(tab).supportedEffortLevels
-  const levels = EFFORTS.filter(l => !supported || supported.includes(l.value) || l.value === 'ultracode')
+  const levels = effortLevels(tab), def = defaultEffortFor(modelInfo(tab))
   const range = el('input', 'effort-range')
-  Object.assign(range, { type: 'range', min: 0, max: levels.length - 1, step: 1, value: Math.max(0, levels.findIndex(l => l.value === tab.effort)) })
+  Object.assign(range, { type: 'range', min: 0, max: levels.length - 1, step: 1, value: Math.max(0, levels.indexOf(shownEffort(tab))) })
   range.setAttribute('aria-label', 'Reasoning effort')
   const name = el('b'), hint = el('span', 'muted small')
   const ticks = el('div', 'effort-ticks', ...levels.map((l, k) => {
-    const b = el('button', 'ghost', l.label)
+    const b = el('button', 'ghost lvl-' + l.value, el('span', '', l.label), l.value === def ? el('small', 'effort-default', 'default') : null)
     b.onclick = () => { range.value = k; update(true) }
     return b
   }))
-  const box = el('div', 'effort-pop', el('div', 'effort-top', name, hint), el('div', 'effort-track', range), ticks)
+  const ultra = el('input', 'switch'); ultra.type = 'checkbox'; ultra.checked = tab.ultracode
+  ultra.onchange = async () => { await setUltracode(tab, ultra.checked); ultra.checked = tab.ultracode; saveSettings({ defaultUltracode: tab.ultracode }) }
+  const ultraRow = supportsUltracode(tab) ? el('label', 'effort-ultra', icon('sparkle'),
+    el('div', '', el('div', 'setting-label', 'Ultracode'), el('div', 'muted small', 'Claude plans and runs multi-agent workflows for big tasks, at the effort above.')), ultra) : null
+  const box = el('div', 'effort-pop', el('div', 'effort-top', name, hint), el('div', 'effort-track', range), ticks, ultraRow)
   box.style.setProperty('--n', levels.length)
   function update(commit) {
     const k = +range.value, l = levels[k]
-    name.textContent = l.label
-    hint.textContent = l.hint
-    box.classList.toggle('ultra', l.value === 'ultracode')
-    range.style.setProperty('--p', k / (levels.length - 1))
+    name.replaceChildren(effortLabel(l))
+    hint.textContent = l.hint + (l.value === def ? '. Default for this model.' : '')
+    box.className = 'effort-pop lvl-' + l.value
+    range.style.setProperty('--p', levels.length > 1 ? k / (levels.length - 1) : 1)
     ;[...ticks.children].forEach((b, j) => b.classList.toggle('on', j === k))
-    if (commit && l.value !== tab.effort) setEffort(tab, l.value)
+    if (commit && l.value !== tab.effort) { setEffort(tab, l.value); saveSettings({ defaultEffort: l.value }) }
   }
   range.oninput = () => update(false)
   range.onchange = () => update(true)
@@ -1150,6 +1176,7 @@ function openSettings(section = 'appearance') {
       row('Permission mode', select('defaultMode', MODES.map(m => [m.value, m.label]))),
       row('Model', select('defaultModel', [...models, { group: 'More models', items: MORE_MODELS }])),
       row('Reasoning effort', select('defaultEffort', EFFORTS.map(l => [l.value, l.label]))),
+      row('Ultracode', toggle('defaultUltracode'), 'Claude plans and runs multi-agent workflows for big tasks, at the effort above.'),
     ]],
     google: ['Antigravity', 'sparkle', () => [
       el('div', 'kv',

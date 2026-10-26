@@ -6,12 +6,11 @@ const MODES = [
   { value: 'bypassPermissions', label: 'Bypass permissions', short: 'Bypass', icon: 'warning' },
 ]
 const EFFORTS = [
-  { value: 'low', label: 'Low', hint: 'Quick answers, fewest tokens' },
-  { value: 'medium', label: 'Medium', hint: 'Balanced speed and depth' },
-  { value: 'high', label: 'High', hint: 'Thinks longer on tricky work' },
-  { value: 'xhigh', label: 'Extra high', hint: 'Deep reasoning for hard problems' },
-  { value: 'max', label: 'Max', hint: 'Everything it has, slowest' },
-  { value: 'ultracode', label: 'Ultracode', hint: 'Max effort plus multi-agent workflows' },
+  { value: 'low', label: 'Low', hint: 'Quick answers, fewest tokens', color: 'low' },
+  { value: 'medium', label: 'Medium', hint: 'Balanced speed and depth', color: 'medium' },
+  { value: 'high', label: 'High', hint: 'Thinks longer on tricky work', color: 'high' },
+  { value: 'xhigh', label: 'Extra high', hint: 'Deep reasoning for hard problems', color: 'xhigh' },
+  { value: 'max', label: 'Max', hint: 'Everything it has, slowest', color: 'max' },
 ]
 const IDLE_STOP = 15 * 60000
 
@@ -36,6 +35,7 @@ class Tab {
     this.model = settings.defaultModel
     this.mode = settings.defaultMode
     this.effort = settings.defaultEffort
+    this.ultracode = settings.defaultUltracode
     this.fast = false
     this.saver = settings.saverOn
     this.accountPick = null
@@ -116,7 +116,7 @@ class Tab {
     try {
       await api.start(this.id, {
         cwd: this.cwd, account: this.account, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
-        effort: this.effort === 'ultracode' ? 'max' : this.effort || undefined, additionalDirectories: this.addDirs,
+        effort: this.effort || undefined, additionalDirectories: this.addDirs,
         saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents }, ...extra,
       })
     } catch (e) {
@@ -127,8 +127,8 @@ class Tab {
       if (/signed out/.test(text)) this.loginPrompt()
       return
     }
-    const flags = { ...(this.fast && { fastMode: true }), ...(this.effort === 'ultracode' && { ultracode: true, effortLevel: 'max' }) }
-    if (Object.keys(flags).length) api.control(this.id, 'applyFlagSettings', flags).catch(() => toast('Ultracode is not available for this model or account', 'err'))
+    const flags = { ...(this.fast && { fastMode: true }), ...(this.ultracode && { ultracode: true }) }
+    if (Object.keys(flags).length) api.control(this.id, 'applyFlagSettings', flags).catch(() => { this.ultracode = false; toast('Ultracode is not available for this model or account', 'err'); App.tabChanged(this) })
   }
 
   async ensureLive() { if (this.cwd && !this.busy && (!this.live || this.startedAccount !== this.account)) await this.start() }
