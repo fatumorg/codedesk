@@ -189,8 +189,9 @@ class Tab {
       case 'rate_limit_event': {
         const r = m.rate_limit_info
         if (r.status === 'rejected') { this.limited = r.resetsAt ? r.resetsAt * 1000 : this.limited || -1; return }
-        if (r.status === Tab.rateStatus) return
-        Tab.rateStatus = r.status
+        const acct = this.startedAccount || 'system'
+        if (r.status === Tab.rateStatus[acct]) return
+        Tab.rateStatus[acct] = r.status
         if (r.status === 'allowed_warning') {
           const saver = settings.saverModel
           const tabs = saver ? [...App.tabs.values()].filter(t => !/^gemini/i.test(t.model || '')) : []
@@ -347,11 +348,8 @@ class Tab {
     App.tabChanged(this)
   }
 
-  async limitReset() {
-    const r = (await api.usage(this.id, false, this.account).catch(() => null))?.rate_limits || {}
-    const full = [r.five_hour, r.seven_day, r.seven_day_opus, r.seven_day_sonnet, ...(r.model_scoped || [])]
-      .filter(w => w?.resets_at && w.utilization >= 100).map(w => Date.parse(w.resets_at))
-    return full.length ? Math.max(...full) : 0
+  async limitReset(account = this.account) {
+    return limitedUntil(await fetchUsage(account, { tab: this.startedAccount === account ? this : null }))
   }
 
   async continueAfterLimit() {
@@ -441,6 +439,7 @@ class Tab {
     if (this.view.isConnected) await this.send(this.continuePrompt)
   }
 
+  static rateStatus = {}
   static CONTINUE = 'Your usage limit has reset. Continue the task you were working on from where you left off.'
   static resumes() { try { return JSON.parse(localStorage.getItem('resumes') || '{}') } catch { return {} } }
   static saveResume(id, v) {

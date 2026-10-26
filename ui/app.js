@@ -26,7 +26,7 @@ const App = {
     autosize()
     renderAttachments()
     this.tabChanged(tab)
-    if (tab.account !== App.usageAccount) App.refreshUsage(tab)
+    if (!App.usageByAccount[tab.account]) App.refreshUsage(tab)
     this.refreshSessions()
     if (settings.panel) Panels.render()
     tab.scroll(true)
@@ -682,20 +682,37 @@ $('#project-switch').onclick = async e => {
   ])
 }
 
-App.usage = null
+App.usageByAccount = {}
+async function fetchUsage(account, { full = false, tab = null } = {}) {
+  const u = await api.usage(tab?.live ? tab.id : null, full, account).catch(() => null)
+  if (u) App.usageByAccount[account] = { u, at: Date.now() }
+  return u
+}
+async function refreshOtherAccounts(maxAge = 300000) {
+  const stale = (App.accounts || []).filter(a => a.signedIn !== false && Date.now() - (App.usageByAccount[a.id]?.at || 0) > maxAge)
+  await Promise.all(stale.map(a => fetchUsage(a.id)))
+}
+function usageDetail(id) {
+  const a = App.accounts?.find(x => x.id === id)
+  if (a?.signedIn === false) return 'Signed out'
+  const r = App.usageByAccount[id]?.u?.rate_limits
+  if (!r) return ''
+  const at = limitedUntil(App.usageByAccount[id].u)
+  if (at > Date.now()) return `Limit reached · resets ${clock(at)}`
+  const pct = w => `${Math.round(w?.utilization ?? 0)}%`
+  return `Session ${pct(r.five_hour)} · Week ${pct(r.seven_day)}`
+}
 App.refreshUsage = debounce(async tab => {
   const box = $('.usage-modal .usage')
   const account = tab?.account || settings.account
-  const u = await api.usage(tab?.live ? tab.id : null, !!box, account).catch(() => null)
+  const u = await fetchUsage(account, { full: !!box, tab })
   if (!u) return
-  App.usageAccount = account
-  App.usage = u
   renderUsageMeter()
-  if (box?.isConnected) box.replaceChildren(...usageView(u, tab))
+  if (box?.isConnected && box.dataset.account === account) box.replaceChildren(...usageView(u, tab, account))
 }, 1500)
 
 function renderUsageMeter() {
-  const w = App.usage?.rate_limits?.five_hour
+  const w = App.usageByAccount[App.active?.account || settings.account]?.u?.rate_limits?.five_hour
   const b = $('#st-usage')
   b.hidden = !w || w.utilization == null
   if (b.hidden) return
@@ -714,7 +731,25 @@ const BEHAVIORS = {
   cron: ['Scheduled and looping tasks', 'Loops and scheduled tasks keep running on their own.'],
 }
 
-function usageView(u, tab) {
+function accountsUsage(selected, pick) {
+  const list = App.accounts || []
+  if (list.length < 2) return null
+  return el('div', 'acct-usage', ...list.map(a => {
+    const r = App.usageByAccount[a.id]?.u?.rate_limits || {}
+    const bar = (label, w) => el('div', 'acct-bar' + (w?.utilization >= 100 ? ' full' : w?.utilization >= 75 ? ' warn' : ''),
+      el('span', 'muted small', label), el('span', 'mini-bar', Object.assign(el('span'), { style: `width:${Math.min(Math.round(w?.utilization ?? 0), 100)}%` })),
+      el('span', 'mono small', w?.utilization != null ? `${Math.round(w.utilization)}%` : '…'))
+    const row = el('div', 'acct-row' + (a.id === selected ? ' on' : ''),
+      el('div', 'acct-name', el('b', '', accountName(a.id)), a.plan ? el('span', 'pill', a.plan[0].toUpperCase() + a.plan.slice(1)) : null),
+      ...(a.signedIn === false
+        ? [el('span', 'muted small', signedOutDetail(a)), button('Sign in again', e => { e.stopPropagation(); signInAgain(a) }, 'ghost sm')]
+        : [bar('Session', r.five_hour), bar('Week', r.seven_day)]))
+    row.onclick = () => pick(a.id)
+    return row
+  }))
+}
+
+function usageView(u, tab, account = tab?.account || settings.account) {
   if (!u) return [el('p', 'muted', 'Could not load usage. Make sure Claude Code is signed in.')]
   const r = u.rate_limits || {}
   const meter = (label, pct, detail) => {
@@ -731,7 +766,7 @@ function usageView(u, tab) {
   const acct = App.account || {}
   const out = [el('div', 'usage-head',
     el('span', 'pill', u.subscription_type ? `Claude ${u.subscription_type[0].toUpperCase() + u.subscription_type.slice(1)}` : acct.authMethod || 'API'),
-    el('span', 'muted', acct.email || ''))]
+    el('span', 'muted', accountName(account)))]
   if (!u.rate_limits_available) out.push(el('p', 'muted', 'Plan limits don\'t apply to this sign-in (API key, Bedrock, Vertex or similar). You pay per token instead.'))
   out.push(el('div', 'meters', ...windows.map(([l, w]) => meter(l, w.utilization, resets(w)))))
   const x = r.extra_usage
@@ -770,12 +805,20 @@ function usageView(u, tab) {
 
 async function openUsage(tab = App.active) {
   $('.modal-back.usage-modal')?.remove()
+  const top = el('div')
   const body = el('div', 'usage stack', el('p', 'muted', 'Loading usage…'))
-  const m = modal('Usage and limits', body, { wide: true })
+  const m = modal('Usage and limits', el('div', 'stack', top, body), { wide: true })
   m.box.parentElement.classList.add('usage-modal')
-  const u = await api.usage(tab?.live ? tab.id : null, true, tab?.account || settings.account).catch(() => null)
-  if (u) { App.usage = u; App.usageAccount = tab?.account || settings.account; renderUsageMeter() }
-  body.replaceChildren(...usageView(u, tab))
+  const show = async account => {
+    body.dataset.account = account
+    top.replaceChildren(accountsUsage(account, show) || '')
+    const u = await fetchUsage(account, { full: true, tab: tab?.account === account ? tab : null })
+    renderUsageMeter()
+    if (body.dataset.account === account) body.replaceChildren(...usageView(u, tab, account))
+  }
+  const first = tab?.account || settings.account
+  refreshOtherAccounts(0).then(() => top.isConnected && top.replaceChildren(accountsUsage(body.dataset.account, show) || ''))
+  await show(first)
 }
 $('#open-usage').onclick = () => openUsage()
 $('#st-usage').onclick = () => openUsage()
@@ -1296,10 +1339,11 @@ $('#main').addEventListener('mousedown', e => { if (e.target === e.currentTarget
   setInterval(() => { App.tabs.forEach(t => t.tick()); tickTimers() }, 1000)
   let usageTicks = 0
   setInterval(() => {
-    const r = App.usage?.rate_limits || {}
+    const r = App.usageByAccount[App.active?.account || settings.account]?.u?.rate_limits || {}
     const reset = [r.five_hour, r.seven_day].some(w => w?.resets_at && Date.parse(w.resets_at) < Date.now())
     const active = $('.usage-modal') || [...App.tabs.values()].some(t => t.live) || ++usageTicks % 5 === 0
     if (reset || (active && !document.hidden)) App.refreshUsage(App.active)
+    if (!document.hidden) refreshOtherAccounts()
   }, 60000)
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission()
 })()

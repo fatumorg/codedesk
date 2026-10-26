@@ -270,14 +270,24 @@ handle('permit', (e, tab, id, result) => {
 })
 
 const idle = new Promise(() => {})
+const probes = new Map()
+const readUsage = (q, full) => q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: !full }).catch(() => null)
 handle('usage', async (e, tab, full, account) => {
-  const s = sessions.get(key(e, tab))
-  if (s?.isGemini) return null
-  const live = s?.q
-  const q = live || query({ prompt: (async function* () { await idle })(), options: { cwd: homedir(), pathToClaudeCodeExecutable: claudePath, env: { ...process.env, ...(await accounts().env(account)) } } })
-  try { return await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: !full }) }
-  catch { return null }
-  finally { if (!live) q.close() }
+  const acct = account || 'system'
+  const same = s => s && !s.isGemini && !s.closed && (s.account || 'system') === acct
+  const own = sessions.get(key(e, tab))
+  const live = (same(own) && own) || [...sessions.values()].find(same)
+  if (live) return readUsage(live.q, full)
+  const k = `${acct}:${!!full}`
+  if (!probes.has(k)) probes.set(k, (async () => {
+    let q
+    try {
+      q = query({ prompt: (async function* () { await idle })(), options: { cwd: homedir(), pathToClaudeCodeExecutable: claudePath, env: { ...process.env, ...(await accounts().env(account)) } } })
+      return await readUsage(q, full)
+    } catch { return null }
+    finally { q?.close(); probes.delete(k) }
+  })())
+  return probes.get(k)
 })
 
 handle('listSessions', async (_, dir) => {

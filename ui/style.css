@@ -598,3 +598,14 @@ input.effort-range { -webkit-appearance: none; appearance: none; width: 100%; he
 .editor.plain .editor-hl { display: none; }
 .editor.plain .editor-input { color: var(--fg); padding-left: 14px; }
 .editor-wrap { flex: 1; min-height: 0; }
+.acct-usage { display: grid; gap: 6px; }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1.3fr) 1fr 1fr; align-items: center; gap: 14px; padding: 9px 12px; border: 1px solid var(--border); border-radius: calc(9px * var(--rk)); cursor: pointer; transition: background .15s var(--ease), border-color .15s var(--ease); }
+.acct-row:hover { background: var(--hover); }
+.acct-row.on { border-color: var(--border-strong); background: var(--surface-2); }
+.acct-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acct-name b { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-bar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; color: var(--fg-2); }
+.acct-bar.warn { color: var(--yellow); }
+.acct-bar.full { color: var(--red); }
+.acct-bar .mini-bar { width: auto; }
+@media (max-width: 700px) { .acct-row { grid-template-columns: 1fr; } }
