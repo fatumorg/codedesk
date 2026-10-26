@@ -452,7 +452,7 @@ function createWindow(cwd) {
     width: 1400, height: 900, minWidth: 420, minHeight: 320,
     title: 'Codedesk', icon, autoHideMenuBar: true,
     backgroundColor: '#1c1b19',
-    webPreferences: { preload: path.join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
+    webPreferences: { preload: path.join(here, 'preload.cjs'), backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
   })
   const id = win.webContents.id
   win.on('closed', () => {

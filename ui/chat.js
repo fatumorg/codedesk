@@ -209,7 +209,7 @@ class Tab {
       case 'prompt_suggestion': this.suggestion = m.suggestion || ''; return App.tabChanged(this)
       case 'rate_limit_event': {
         const r = m.rate_limit_info
-        if (r.status === 'rejected') { this.limited = r.resetsAt ? r.resetsAt * 1000 : this.limited || -1; return }
+        if (r.status === 'rejected') { this.rejected = { account: this.startedAccount || 'system', at: Date.now() }; this.limited = r.resetsAt ? r.resetsAt * 1000 : this.limited || -1; return }
         const acct = this.startedAccount || 'system'
         if (r.status === Tab.rateStatus[acct]) return
         Tab.rateStatus[acct] = r.status
@@ -295,7 +295,7 @@ class Tab {
 
   assistant(m, parent) {
     if (!m.history) this.setBusy(true)
-    if (m.error === 'rate_limit' && !m.history) this.limited ||= -1
+    if (m.error === 'rate_limit' && !m.history) { this.limited ||= -1; this.rejected = { account: this.startedAccount || 'system', at: Date.now() } }
     else if (m.error) {
       this.add(el('div', 'notice err', icon('warning'), `Error: ${m.error.replace(/_/g, ' ')}`), parent)
       if (m.error === 'authentication_failed') this.loginPrompt()
@@ -337,8 +337,9 @@ class Tab {
     App.status(this, `Done in ${dur(m.duration_ms)} · ${m.num_turns} turn${m.num_turns === 1 ? '' : 's'}`)
     const limitText = /hit your (usage )?limit|usage limit reached|limit reached/i.test(m.result || '')
     if (this.limited || limitText) {
-      this.scheduleResume(this.limited > 0 ? this.limited : 0)
+      const at = this.limited > 0 ? this.limited : 0, acct = this.startedAccount || 'system'
       this.limited = 0
+      this.autoSwitch().catch(() => {}).finally(() => this.scheduleResume(at, false, acct))
     } else if (m.subtype === 'error_max_turns') {
       this.add(el('div', 'notice warn', icon('gauge'), 'Stopped after the step limit (Settings → Usage). Send a message to keep going.'))
     } else if (m.subtype !== 'success' || m.is_error) {
@@ -385,12 +386,15 @@ class Tab {
 
   get autoResume() { return settings.autoContinue || this.forceResume }
 
-  async scheduleResume(at, force) {
-    if (!at) at = await this.limitReset() || Date.now() + 15 * 60000
+  async scheduleResume(at, force, account = this.account) {
     this.cancelResume()
-    this.resumeAt = at + 30000
     this.forceResume = !!force
-    if (this.sessionId) Tab.saveResume(this.sessionId, { cwd: this.cwd, at: this.resumeAt, force: this.forceResume })
+    this.resumeAccount = account
+    this.resumeUnknown = !at
+    this.resumeRoom = false
+    this.recheckAfter = 0
+    this.resumeAt = at || Date.now()
+    this.saveResumeState()
     const text = el('span', 'grow')
     const auto = button('Continue automatically', () => { saveSettings({ autoContinue: true }); this.renderResume() }, 'sm')
     this.resumeCard = el('div', 'notice limit', icon('hourglass-medium'), text,
@@ -399,34 +403,87 @@ class Tab {
     this.resumeCard.auto = auto
     this.add(this.resumeCard)
     this.renderResume()
-    notify(`${this.name}: usage limit reached`, this.autoResume ? `Claude continues at ${clock(this.resumeAt)}` : `Resets at ${clock(this.resumeAt)}`)
+    if (at) notify(`${this.name}: usage limit reached`, this.autoResume ? `Claude continues at ${clock(this.resumeAt)}` : `Resets at ${clock(this.resumeAt)}`)
+  }
+
+  saveResumeState() {
+    if (this.sessionId) Tab.saveResume(this.sessionId, { cwd: this.cwd, at: this.resumeAt, force: this.forceResume, account: this.resumeAccount })
+  }
+
+  async recheckResume() {
+    if (this.rechecking) return
+    this.rechecking = true
+    try {
+      const acc = this.account
+      const at = await this.limitReset(acc)
+      if (!this.resumeAt) return
+      const stale = at === 0 && this.rejected?.account === acc && Date.now() - this.rejected.at < 60000
+      if (at === null || stale) {
+        this.resumeUnknown = true
+        this.recheckAfter = this.resumeAt = Date.now() + 60000
+        return
+      }
+      this.resumeUnknown = false
+      this.resumeAccount = acc
+      this.resumeRoom = !(at > Date.now())
+      this.resumeAt = this.resumeRoom ? Date.now() : at
+      this.saveResumeState()
+      if (this.resumeRoom && this.autoResume) this.resume()
+    } finally {
+      this.rechecking = false
+      this.renderResume()
+    }
+  }
+
+  async autoSwitch() {
+    if (!settings.autoSwitchAccount || /^gemini/i.test(this.model || '')) return
+    const accts = (App.accounts || []).filter(a => a.signedIn !== false)
+    if (accts.length < 2) return
+    const usages = await Promise.all(accts.map(async a => {
+      const c = App.usageByAccount[a.id]
+      return { id: a.id, u: a.id !== this.account && c && Date.now() - c.at < 60000 ? c.u : await fetchUsage(a.id) }
+    }))
+    const p = pickAccount(this.account, usages)
+    if (!p) return
+    const prev = this.sessionId ? settings.sessionAccounts[this.sessionId] ?? null : this.accountPick
+    setConversationAccount(this, p.id)
+    const undo = button('Undo', () => { setConversationAccount(this, prev); undo.disabled = true }, 'ghost sm')
+    this.add(el('div', 'notice', icon('user-switch'), el('span', 'grow', p.at
+      ? `All accounts are at their limit. Switched to ${accountName(p.id)}, which resets first at ${clock(p.at)}.`
+      : `Switched to ${accountName(p.id)}, which has room.`), undo))
   }
 
   renderResume() {
     const c = this.resumeCard
     if (!c) return
     c.auto.hidden = this.autoResume
-    c.text.textContent = this.autoResume
-      ? `Usage limit reached. Claude will continue this task at ${clock(this.resumeAt)} (in ${until(this.resumeAt)}).`
-      : `Usage limit reached. It resets at ${clock(this.resumeAt)} (in ${until(this.resumeAt)}).`
+    const name = accountName(this.account), on = (App.accounts?.length || 0) > 1 ? ` on ${name}` : ''
+    c.text.textContent = this.resumeUnknown ? `Checking when ${name} resets…`
+      : this.resumeRoom ? `${name} has room now.`
+      : this.autoResume
+        ? `Usage limit reached${on}. Claude will continue this task at ${clock(this.resumeAt)} (in ${until(this.resumeAt)}).`
+        : `Usage limit reached${on}. It resets at ${clock(this.resumeAt)} (in ${until(this.resumeAt)}).`
   }
 
   tick() {
     const idle = this.live && !this.busy && !this.permissions && !this.resumeAt && Date.now() - this.lastActive > IDLE_STOP
     if (idle && ![...this.tasks.values()].some(t => t.status === 'running')) { api.stop(this.id); this.live = false }
     if (!this.resumeAt) return
-    if (Date.now() >= this.resumeAt && this.autoResume) this.resume()
-    else this.renderResume()
+    if (this.account !== this.resumeAccount && Date.now() >= (this.recheckAfter || 0)) return this.recheckResume()
+    if (Date.now() < this.resumeAt) return this.renderResume()
+    if (this.resumeUnknown) return this.recheckResume()
+    if (this.autoResume) return this.resume()
+    this.renderResume()
   }
 
   cancelResume(byUser) {
     if (!this.resumeAt) return
-    const at = this.resumeAt, force = this.forceResume
+    const at = this.resumeUnknown ? 0 : this.resumeAt, force = this.forceResume, account = this.resumeAccount
     this.resumeAt = 0
     if (this.sessionId) Tab.saveResume(this.sessionId, null)
     const card = this.resumeCard
     card?.replaceChildren(icon('hourglass-medium'), el('span', 'grow', byUser ? 'Automatic continue cancelled' : 'Continued'),
-      button(byUser ? 'Undo' : 'Continue again', () => { card.remove(); byUser ? this.scheduleResume(at - 30000, force) : this.resume() }, 'ghost sm'))
+      button(byUser ? 'Undo' : 'Continue again', () => { card.remove(); byUser ? this.scheduleResume(at, force, account) : this.resume() }, 'ghost sm'))
     card?.classList.add('done')
     this.resumeCard = null
   }

@@ -853,6 +853,10 @@ function usageView(u, tab, account = tab?.account || settings.account) {
   auto.onchange = () => { saveSettings({ autoContinue: auto.checked }); App.tabs.forEach(t => t.renderResume()) }
   out.push(el('label', 'setting', el('div', '', el('div', 'setting-label', 'Continue automatically after a limit resets'),
     el('div', 'muted small', 'If Claude is stopped mid-task by a usage limit, it picks the task back up when the limit resets, even after restarting the app.')), auto))
+  const sw = el('input', 'switch'); sw.type = 'checkbox'; sw.checked = settings.autoSwitchAccount
+  sw.onchange = () => saveSettings({ autoSwitchAccount: sw.checked })
+  out.push(el('label', 'setting', el('div', '', el('div', 'setting-label', 'Switch to another account at the limit'),
+    el('div', 'muted small', 'Moves a conversation that hits its limit to a signed-in account with room, or to the one that resets first.')), sw))
   out.push(el('div', 'row end', button('Open usage on claude.ai', () => api.openExternal('https://claude.ai/settings/usage'), 'ghost', 'arrow-square-out'),
     button('Refresh', () => openUsage(tab), '', 'arrows-clockwise')))
   return out
@@ -1163,6 +1167,7 @@ function openSettings(section = 'appearance') {
     ]],
     usage: ['Usage', 'gauge', () => [
       row('Continue after a usage limit resets', toggle('autoContinue')),
+      row('Switch to another account at the limit', toggle('autoSwitchAccount'), 'Moves a conversation that hits its limit to a signed-in account with room, or to the one that resets first.'),
       row('Continue message', continueBox, 'Sent when Claude picks a task back up. Leave empty for the default. Set one for a single conversation with Edit message on its limit notice.'),
       row('Codedesk Saver', toggle('saverOn', () => App.tabs.forEach(t => { if (!t.sessionId) { t.saver = settings.saverOn; App.tabChanged(t) } })), 'Picks the model once, when a conversation starts, so the prompt cache is never rebuilt. Skills, slash commands, plan mode, attachments and long prompts always keep your default model.'),
       row('Quick tasks', el('div', 'row', saverWords('saverQuickWords'), select('saverQuickModel', SAVER_MODELS)), 'Short prompts containing these words. Haiku is raised to Sonnet when skills are installed.'),
@@ -1391,7 +1396,7 @@ $('#main').addEventListener('mousedown', e => { if (e.target === e.currentTarget
   App.refreshUsage(null)
   for (const [id, r] of Object.entries(Tab.resumes())) {
     await App.openProject(r.cwd, id)
-    ;[...App.tabs.values()].find(t => t.sessionId === id)?.scheduleResume(r.at - 30000, r.force)
+    ;[...App.tabs.values()].find(t => t.sessionId === id)?.scheduleResume(r.at, r.force, r.account)
   }
   setInterval(() => { App.tabs.forEach(t => t.tick()); tickTimers() }, 1000)
   let usageTicks = 0
