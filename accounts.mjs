@@ -27,7 +27,7 @@ async function profile(files) {
   return { key: `${a.accountUuid}/${a.organizationUuid}`, email: a.emailAddress, org: a.organizationName, plan: oauth.subscriptionType }
 }
 
-const signedIn = async files => !!(await readJson(files.creds)).claudeAiOauth?.refreshToken
+const signedIn = async files => { const c = await readJsonOrNull(files.creds); return c === null || !!c.claudeAiOauth?.refreshToken }
 
 export function createAccounts(main, root) {
   const filesOf = id => {
@@ -59,7 +59,10 @@ export function createAccounts(main, root) {
 
   async function list() {
     const ids = await fs.readdir(root).catch(() => [])
-    const added = await Promise.all(ids.filter(id => /^[\w-]+$/.test(id)).map(entry))
+    const added = await Promise.all(ids.filter(id => /^[\w-]+$/.test(id)).map(id => entry(id).catch(async () => {
+      const rec = await record(id).catch(() => null)
+      return rec && { id, ...rec, signedIn: true }
+    })))
     return [{ id: 'system', ...(await profile(main)), signedIn: await signedIn(main) }, ...added.filter(Boolean)]
   }
 
@@ -100,7 +103,7 @@ export function createAccounts(main, root) {
     async env(id) {
       if (!id || id === 'system') return {}
       const files = filesOf(id)
-      const rec = await record(id)
+      const rec = (await record(id)) || (await entry(id).catch(() => null))
       if (!rec) throw new Error('Account not found')
       if (!(await signedIn(files))) throw new Error(`${rec.email} is signed out. Sign in again from the account menu.`)
       return serial(id, async () => {

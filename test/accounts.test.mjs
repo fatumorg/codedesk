@@ -117,3 +117,26 @@ test('migrates accounts added before records existed', async () => {
   assert.ok((await acc.list()).some(a => a.id === 'legacy' && a.email === 'a3@x'))
   assert.equal(JSON.parse(await readFile(path.join(old, 'codedesk.json'), 'utf8')).email, 'a3@x')
 })
+
+test('a torn credentials read is not a sign-out', async () => {
+  const { acc, id, dir } = await setup()
+  await writeFile(path.join(dir, '.credentials.json'), '{"claudeAiOa')
+  assert.equal((await acc.list()).find(a => a.id === id).signedIn, true)
+  assert.equal((await acc.env(id)).CLAUDE_CONFIG_DIR, dir)
+})
+
+test('one broken account folder does not hide the others', async () => {
+  const { main, acc, id } = await setup()
+  const bad = path.join(path.dirname(main.dir), 'accounts', 'broken')
+  await mkdir(path.join(bad, 'codedesk.json'), { recursive: true })
+  await loginAs(4)({ CLAUDE_CONFIG_DIR: bad })
+  assert.ok((await acc.list()).some(a => a.id === id))
+})
+
+test('accounts from before records existed can start before the first list', async () => {
+  const { main, acc } = await setup()
+  const old = path.join(path.dirname(main.dir), 'accounts', 'legacy')
+  await mkdir(old, { recursive: true })
+  await loginAs(3)({ CLAUDE_CONFIG_DIR: old })
+  assert.equal((await acc.env('legacy')).CLAUDE_CONFIG_DIR, old)
+})

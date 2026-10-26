@@ -67,3 +67,27 @@ test('room reported right after a rejection counts as unknown', async () => {
   assert.equal(t.sent.length, 0)
   assert.ok(t.resumeUnknown)
 })
+
+test('unreadable usage on the new account keeps the known time', async () => {
+  const at = Date.now() + 5 * H
+  const t = tab({ A: at, B: null })
+  await t.scheduleResume(at, false, 'A')
+  ctx.settings.sessionAccounts.s = 'B'
+  t.tick(); await flush()
+  assert.equal(t.resumeAt, at)
+  assert.ok(!t.resumeUnknown)
+  assert.ok(t.recheckAfter - Date.now() > 55000)
+  delete ctx.settings.sessionAccounts.s
+})
+
+test('a failed start does not send or leave the tab busy', async () => {
+  const sent = []
+  ctx.api = { send: (...a) => sent.push(a) }
+  ctx.App.setComposer = () => {}
+  const t = Object.create(ctx.Tab.prototype)
+  Object.assign(t, { cwd: '/p', busy: false, live: false, sessionId: 's' })
+  t.start = async () => { t.live = false; return false }
+  await t.send('hello')
+  assert.equal(sent.length, 0)
+  assert.ok(!t.busy)
+})

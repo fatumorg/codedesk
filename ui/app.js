@@ -738,13 +738,15 @@ $('#project-switch').onclick = async e => {
 }
 
 App.usageByAccount = {}
+App.usageTried = {}
 async function fetchUsage(account, { full = false, tab = null } = {}) {
+  App.usageTried[account] = Date.now()
   const u = await api.usage(tab?.live ? tab.id : null, full, account).catch(() => null)
   if (u) App.usageByAccount[account] = { u, at: Date.now() }
   return u
 }
 async function refreshOtherAccounts(maxAge = 300000) {
-  const stale = (App.accounts || []).filter(a => a.signedIn !== false && Date.now() - (App.usageByAccount[a.id]?.at || 0) > maxAge)
+  const stale = (App.accounts || []).filter(a => a.signedIn !== false && Date.now() - Math.max(App.usageByAccount[a.id]?.at || 0, App.usageTried[a.id] || 0) > maxAge)
   await Promise.all(stale.map(a => fetchUsage(a.id)))
 }
 function usageDetail(id) {
@@ -898,13 +900,13 @@ const accountName = id => App.accounts?.find(a => a.id === id)?.email || (id ===
 const accountDetail = a => [a.plan && a.plan[0].toUpperCase() + a.plan.slice(1), a.org].filter(Boolean).join(' · ')
 
 async function loadAccount() {
-  const [r, g, list] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({})), api.accounts().catch(() => [])])
+  const [r, g, list] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({})), api.accounts().catch(() => null)])
   let s = {}
   try { s = JSON.parse(r.stdout) } catch {}
   App.account = s
   App.google = g || {}
-  App.accounts = list
-  const def = App.accounts.find(a => a.id === settings.account)
+  if (list) App.accounts = list
+  const def = App.accounts?.find(a => a.id === settings.account)
   $('#account-name').textContent = def?.email || (s.loggedIn
     ? (s.email || s.account?.email || (s.authMethod === 'claude.ai' ? 'Claude account' : s.authMethod))
     : g?.loggedIn ? 'Antigravity' : 'Sign in')

@@ -135,13 +135,18 @@ class Tab {
       const text = String(e?.message || e).replace(/^Error invoking remote method '\w+': (Error: )?/, '')
       this.add(el('div', 'notice err', icon('warning'), text))
       if (/signed out/.test(text)) this.loginPrompt()
-      return
+      api.stop(this.id)
+      return false
     }
     const flags = { ...(this.fast && { fastMode: true }), ...(this.ultracode && { ultracode: true }) }
     if (Object.keys(flags).length) api.control(this.id, 'applyFlagSettings', flags).catch(() => { this.ultracode = false; toast('Ultracode is not available for this model or account', 'err'); App.tabChanged(this) })
   }
 
-  async ensureLive() { if (this.cwd && !this.busy && (!this.live || this.startedAccount !== this.account)) await this.start() }
+  async ensureLive() {
+    if (!this.cwd) return false
+    if (!this.busy && (!this.live || this.startedAccount !== this.account)) await this.start()
+    return this.busy || (this.live && this.startedAccount === this.account)
+  }
 
   static cachedSkills() { try { return JSON.parse(localStorage.getItem('skills') || '[]') } catch { return [] } }
 
@@ -419,8 +424,8 @@ class Tab {
       if (!this.resumeAt) return
       const stale = at === 0 && this.rejected?.account === acc && Date.now() - this.rejected.at < 60000
       if (at === null || stale) {
-        this.resumeUnknown = true
-        this.recheckAfter = this.resumeAt = Date.now() + 60000
+        this.recheckAfter = Date.now() + 60000
+        if (this.resumeUnknown || acc === this.resumeAccount) { this.resumeUnknown = true; this.resumeAt = this.recheckAfter }
         return
       }
       this.resumeUnknown = false
@@ -575,7 +580,11 @@ class Tab {
     if (!this.cwd) return
     this.cancelResume()
     this.suggestion = ''
-    await this.ensureLive()
+    if (!(await this.ensureLive())) {
+      const text = typeof content === 'string' ? content : content.find(b => b.type === 'text')?.text
+      if (text && App.active === this) App.setComposer(text)
+      return
+    }
     this.lastActive = Date.now()
     const uuid = crypto.randomUUID()
     this.userBubble(content, uuid, { queued: this.busy })
@@ -589,7 +598,7 @@ class Tab {
   }
 
   async bash(command) {
-    await this.ensureLive()
+    if (!(await this.ensureLive())) return
     const card = this.bashCard(command, null)
     const r = await api.runShell(this.cwd, command)
     card.fill(r)
