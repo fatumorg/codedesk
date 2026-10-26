@@ -517,8 +517,8 @@ input.effort-range { -webkit-appearance: none; appearance: none; width: 100%; he
   background: linear-gradient(90deg, var(--c, var(--accent)) calc(9px + var(--p, 0) * (100% - 18px)), var(--surface-2) 0) border-box; border: 1px solid var(--border); transition: background .2s var(--ease); }
 .effort-range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); border: 2px solid var(--c, var(--accent)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c, var(--accent)) 18%, transparent), 0 1px 4px rgba(0,0,0,.2); transition: transform .15s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease); }
 .effort-range:active::-webkit-slider-thumb, .effort-range:focus-visible::-webkit-slider-thumb { transform: scale(1.15); }
-.effort-ticks { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
-.effort-ticks button { display: grid; justify-items: center; gap: 1px; font-size: 11px; padding: 3px 0; white-space: nowrap; color: var(--muted); border: 0; }
+.effort-ticks { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: start; }
+.effort-ticks button { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-width: 0; gap: 1px; font-size: 11px; padding: 3px 0; white-space: nowrap; color: var(--muted); border: 0; }
 .effort-ticks button.on { color: var(--c); font-weight: 600; }
 .effort-default { font-size: 9.5px; font-weight: 500; color: var(--muted); letter-spacing: .02em; }
 .effort-ultra { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); cursor: pointer; }
