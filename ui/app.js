@@ -204,7 +204,7 @@ const App = {
     plan: { description: 'Switch to plan mode, optionally with a task', run: (t, task) => { setMode(t, 'plan'); if (task?.trim()) t.send([{ type: 'text', text: task.trim() }]) } },
     branch: { description: 'Branch this conversation into a new tab', run: async t => {
       if (!t.sessionId || /^gemini/i.test(t.model || '')) return toast('Nothing to branch yet')
-      App.openProject(t.cwd, (await api.forkSession(t.sessionId, t.cwd)).sessionId, { newTab: true })
+      App.openProject(t.cwd, await Tab.fork(t.sessionId, t.cwd), { newTab: true })
     } },
     stats: { description: 'Plan usage, limits and what used them', run: t => openUsage(t) },
     keybindings: { description: 'Keyboard shortcuts', run: () => openHelp() },
@@ -458,6 +458,9 @@ function renderChips(tab) {
   $('#effort-chip').replaceChildren(icon(effort.value === 'ultracode' ? 'sparkle' : 'brain'), el('span', '', effort.label))
   $('#effort-chip').className = 'chip effort-chip lvl-' + effort.value
   $('#effort-chip').hidden = model.supportsEffort === false || (!!model.description && !model.supportsEffort && !model.supportedEffortLevels)
+  const ac = $('#account-chip')
+  ac.hidden = (App.accounts?.length || 0) < 2 || /^gemini/i.test(tab.model || '')
+  if (!ac.hidden) ac.replaceChildren(icon('user-circle'), el('span', '', accountName(tab.account).split('@')[0]))
   $('#fast-chip').hidden = !model.supportsFastMode
   $('#fast-chip').classList.toggle('on', tab.fast)
 }
@@ -492,6 +495,28 @@ function setEffort(tab, value) {
 $('#mode-chip').onclick = e => {
   const tab = App.active
   menu(e.currentTarget, [{ header: 'Permission mode  ·  Shift+Tab' }, ...MODES.map(m => ({ label: m.label, icon: m.icon, checked: tab.mode === m.value, run: () => setMode(tab, m.value) }))])
+}
+function setConversationAccount(tab, id) {
+  if (tab.sessionId) {
+    const { [tab.sessionId]: _, ...rest } = settings.sessionAccounts
+    saveSettings({ sessionAccounts: id ? { ...rest, [tab.sessionId]: id } : rest })
+  } else tab.accountPick = id
+  if (tab.live && !tab.busy) tab.start()
+  App.tabChanged(tab)
+  App.refreshUsage(tab)
+}
+$('#account-chip').onclick = async e => {
+  const tab = App.active, anchor = e.currentTarget
+  await refreshOtherAccounts(60000)
+  const own = settings.sessionAccounts[tab.sessionId] || tab.accountPick
+  menu(anchor, [{ header: 'Account for this conversation' },
+    ...App.accounts.map(a => ({ label: accountName(a.id), detail: usageDetail(a.id), icon: a.signedIn === false ? 'warning' : 'user', checked: tab.account === a.id && !!own,
+      run: () => a.signedIn === false ? signInAgain(a) : setConversationAccount(tab, a.id) })),
+    { label: 'Use project or default account', detail: accountName(settings.projectAccounts[tab.cwd] || settings.account), icon: 'arrow-counter-clockwise', checked: !own, run: () => setConversationAccount(tab, null) },
+    '-',
+    { label: 'Add another account', icon: 'user-plus', run: addAccount },
+    { label: 'Usage and limits', icon: 'gauge', run: () => openUsage(tab) },
+  ])
 }
 $('#model-chip').onclick = e => {
   const tab = App.active
@@ -627,7 +652,7 @@ function sessionMenu(anchor, s, title) {
       const t = await prompt('Rename conversation', title)
       if (t) { await api.renameSession(s.sessionId, t, cwd); App.refreshSessions(); for (const tab of App.tabs.values()) if (tab.sessionId === s.sessionId) { tab.title = t; App.tabChanged(tab) } }
     } },
-    ...(/^gemini/i.test(s.model || '') ? [] : [{ label: 'Fork (duplicate)', icon: 'git-fork', run: async () => { const r = await api.forkSession(s.sessionId, cwd); App.openProject(cwd, r.sessionId, { newTab: true }) } }]),
+    ...(/^gemini/i.test(s.model || '') ? [] : [{ label: 'Fork (duplicate)', icon: 'git-fork', run: async () => App.openProject(cwd, await Tab.fork(s.sessionId, cwd), { newTab: true }) }]),
     { label: 'Export as Markdown', icon: 'export', run: async () => { const t = new Tab(cwd); t.sessionId = s.sessionId; t.title = title; await t.exportMarkdown() } },
     '-',
     { label: 'Delete', icon: 'trash', danger: true, run: async () => {
@@ -905,6 +930,7 @@ async function removeAccount(a) {
   await api.removeAccount(a.id)
   saveSettings({
     projectAccounts: Object.fromEntries(Object.entries(settings.projectAccounts).filter(([, id]) => id !== a.id)),
+    sessionAccounts: Object.fromEntries(Object.entries(settings.sessionAccounts).filter(([, id]) => id !== a.id)),
     ...(settings.account === a.id && { account: 'system' }),
   })
   await loadAccount()

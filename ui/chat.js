@@ -38,6 +38,7 @@ class Tab {
     this.effort = settings.defaultEffort
     this.fast = false
     this.saver = settings.saverOn
+    this.accountPick = null
     this.routed = false
     this.tools = new Map()
     this.changes = new Map()
@@ -72,6 +73,7 @@ class Tab {
     this.messages.replaceChildren()
     this.tools.clear(); this.changes.clear(); this.tasks.clear(); this.todos = []
     this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0; this.routed = false
+    this.accountPick = null
     this.title = 'New conversation'
     this.setBusy(false)
     if (sessionId && history) {
@@ -95,7 +97,16 @@ class Tab {
     saveSettings({ workspaces: dirs.length ? { ...rest, [this.cwd]: dirs } : rest })
   }
 
-  get account() { return settings.projectAccounts[this.cwd] || settings.account }
+  get account() {
+    const known = id => id && (id === 'system' || !App.accounts || App.accounts.some(a => a.id === id)) ? id : null
+    return known(settings.sessionAccounts[this.sessionId]) || known(this.accountPick) || known(settings.projectAccounts[this.cwd]) || settings.account
+  }
+
+  static async fork(id, cwd, upToMessageId) {
+    const next = (await api.forkSession(id, cwd, upToMessageId)).sessionId
+    if (settings.sessionAccounts[id]) saveSettings({ sessionAccounts: { ...settings.sessionAccounts, [next]: settings.sessionAccounts[id] } })
+    return next
+  }
 
   async start(extra = {}) {
     this.live = true
@@ -213,6 +224,7 @@ class Tab {
     switch (m.subtype) {
       case 'init':
         this.sessionId = m.session_id
+        if (this.accountPick) { saveSettings({ sessionAccounts: { ...settings.sessionAccounts, [this.sessionId]: this.accountPick } }); this.accountPick = null }
         this.meta.mcp = m.mcp_servers
         this.meta.skills = m.skills || []
         try { localStorage.setItem('skills', JSON.stringify(this.meta.skills)) } catch {}
@@ -547,13 +559,13 @@ class Tab {
       }
     }
     if (how === 'fork') {
-      const id = bubble.prev && this.sessionId ? (await api.forkSession(this.sessionId, this.cwd, bubble.prev)).sessionId : null
+      const id = bubble.prev && this.sessionId ? await Tab.fork(this.sessionId, this.cwd, bubble.prev) : null
       const tab = App.newTab(this.cwd, { activate: true })
       await tab.open(id)
       App.setComposer(text)
       return
     }
-    const id = bubble.prev && this.sessionId ? (await api.forkSession(this.sessionId, this.cwd, bubble.prev)).sessionId : null
+    const id = bubble.prev && this.sessionId ? await Tab.fork(this.sessionId, this.cwd, bubble.prev) : null
     await this.open(id)
     if (how === 'retry') this.send(text)
     else App.setComposer(text)
