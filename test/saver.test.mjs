@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
 const ctx = vm.createContext({})
-vm.runInContext(readFileSync(new URL('../ui/saver.js', import.meta.url), 'utf8') + ';this.routeModel = routeModel; this.limitedUntil = limitedUntil; this.pickAccount = pickAccount', ctx)
+vm.runInContext(readFileSync(new URL('../ui/saver.js', import.meta.url), 'utf8') + ';this.routeModel = routeModel; this.limitedUntil = limitedUntil; this.pickAccount = pickAccount; this.applyLimitHit = applyLimitHit', ctx)
 
 const settings = {
   defaultModel: 'opus', saverOtherModel: 'sonnet',
@@ -46,3 +46,16 @@ test('pickAccount stays when the current account resets first or ties', () => {
 })
 test('pickAccount ignores accounts with unknown usage', () =>
   assert.equal(ctx.pickAccount('a', [{ id: 'a', u: use(100, 2) }, { id: 'b', u: null }], T), null))
+
+test('a limit hit marks the stale window full until it resets', () => {
+  const hit = { type: 'five_hour', at: T + 2 * H }
+  const u = ctx.applyLimitHit(use(75, 2), hit, T)
+  assert.equal(u.rate_limits.five_hour.utilization, 100)
+  assert.equal(ctx.limitedUntil(u), T + 2 * H)
+  assert.equal(ctx.pickAccount('a', [{ id: 'a', u: use(100, 3) }, { id: 'b', u }], T).id, 'b')
+})
+test('a limit hit is ignored once the window has rolled over or expired', () => {
+  assert.equal(ctx.applyLimitHit(use(30, 5), { type: 'five_hour', at: T + 2 * H }, T).rate_limits.five_hour.utilization, 30)
+  assert.equal(ctx.applyLimitHit(use(75, 2), { type: 'five_hour', at: T - 1 }, T).rate_limits.five_hour.utilization, 75)
+  assert.equal(ctx.applyLimitHit(null, { type: 'five_hour', at: T + H }, T), null)
+})

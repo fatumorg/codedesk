@@ -214,7 +214,7 @@ class Tab {
       case 'prompt_suggestion': this.suggestion = m.suggestion || ''; return App.tabChanged(this)
       case 'rate_limit_event': {
         const r = m.rate_limit_info
-        if (r.status === 'rejected') { this.rejected = { account: this.startedAccount || 'system', at: Date.now() }; this.limited = r.resetsAt ? r.resetsAt * 1000 : this.limited || -1; return }
+        if (r.status === 'rejected') { this.rejected = { account: this.startedAccount || 'system', at: Date.now() }; noteLimitHit(this.rejected.account, r); this.limited = r.resetsAt ? r.resetsAt * 1000 : this.limited || -1; return }
         const acct = this.startedAccount || 'system'
         if (r.status === Tab.rateStatus[acct]) return
         Tab.rateStatus[acct] = r.status

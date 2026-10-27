@@ -42,3 +42,9 @@ function pickAccount(current, usages, now = Date.now()) {
   const best = known.filter(x => x.id !== current).sort((a, b) => a.at - b.at)[0]
   return best && (!mine || best.at < mine.at) ? { id: best.id, at: best.at } : null
 }
+
+function applyLimitHit(u, hit, now = Date.now()) {
+  const w = u?.rate_limits?.[hit?.type]
+  if (!w || hit.at <= now || w.utilization >= 100 || Date.parse(w.resets_at) > hit.at + 60000) return u
+  return { ...u, rate_limits: { ...u.rate_limits, [hit.type]: { ...w, utilization: 100, resets_at: new Date(hit.at).toISOString() } } }
+}

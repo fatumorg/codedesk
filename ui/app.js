@@ -739,11 +739,21 @@ $('#project-switch').onclick = async e => {
 
 App.usageByAccount = {}
 App.usageTried = {}
+App.limitHits = {}
 async function fetchUsage(account, { full = false, tab = null } = {}) {
   App.usageTried[account] = Date.now()
-  const u = await api.usage(tab?.live ? tab.id : null, full, account).catch(() => null)
+  const u = applyLimitHit(await api.usage(tab?.live ? tab.id : null, full, account).catch(() => null), App.limitHits[account])
   if (u) App.usageByAccount[account] = { u, at: Date.now() }
   return u
+}
+function noteLimitHit(account, info) {
+  if (!info.resetsAt || !info.rateLimitType) return
+  const hit = App.limitHits[account] = { type: info.rateLimitType, at: info.resetsAt * 1000 }
+  const c = App.usageByAccount[account]
+  if (c) c.u = applyLimitHit(c.u, hit)
+  renderUsageMeter()
+  App.tabs.forEach(t => t.renderResume())
+  fetchUsage(account).then(renderUsageMeter)
 }
 async function refreshOtherAccounts(maxAge = 300000) {
   const stale = (App.accounts || []).filter(a => a.signedIn !== false && Date.now() - Math.max(App.usageByAccount[a.id]?.at || 0, App.usageTried[a.id] || 0) > maxAge)
