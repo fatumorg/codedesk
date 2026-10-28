@@ -140,3 +140,10 @@ test('accounts from before records existed can start before the first list', asy
   await loginAs(3)({ CLAUDE_CONFIG_DIR: old })
   assert.equal((await acc.env('legacy')).CLAUDE_CONFIG_DIR, old)
 })
+
+test('an added account the system login switches to is listed once', async () => {
+  const { main, acc } = await setup()
+  await loginAs(2)({ CLAUDE_CONFIG_DIR: main.dir })
+  await writeFile(main.config, JSON.stringify({ oauthAccount: { accountUuid: 'u2', organizationUuid: 'o', emailAddress: 'a2@x' } }))
+  assert.deepEqual((await acc.list()).map(a => [a.id, a.email]), [['system', 'a2@x']])
+})

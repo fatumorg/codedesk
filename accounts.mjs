@@ -63,7 +63,8 @@ export function createAccounts(main, root) {
       const rec = await record(id).catch(() => null)
       return rec && { id, ...rec, signedIn: true }
     })))
-    return [{ id: 'system', ...(await profile(main)), signedIn: await signedIn(main) }, ...added.filter(Boolean)]
+    const system = { id: 'system', ...(await profile(main)), signedIn: await signedIn(main) }
+    return [system, ...added.filter(a => a && a.key !== system.key)]
   }
 
   async function remove(id) {
