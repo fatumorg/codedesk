@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createDevices, deviceName } from '../remote.mjs'
+import { createDevices, createHub, deviceName } from '../remote.mjs'
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'cd-remote-'))
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
@@ -87,4 +87,130 @@ test('state survives reload', async () => {
 test('device names', () => {
   assert.equal(deviceName('Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/126.0 Mobile Safari/537.36'), 'Android · Chrome')
   assert.equal(deviceName('Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'), 'Linux · Firefox')
+})
+
+const fake = id => { const log = []; return { id, log, send: (ch, d) => log.push([ch, d]), alive: () => true } }
+const last = (c, ch) => c.log.findLast(([x]) => x === ch)?.[1]
+const count = (c, ch) => c.log.filter(([x]) => x === ch).length
+function rig() {
+  const clock = { t: 0 }
+  const hub = createHub({ now: () => clock.t, idleMs: 900000 })
+  const [a, b, c] = ['a', 'b', 'c'].map(fake)
+  for (const x of [a, b, c]) hub.connect(x)
+  const r = { hub, clock, a, b, c, stopped: 0, stop: () => { r.stopped++ } }
+  return r
+}
+
+test('emit fans out with each subscriber tab', () => {
+  const { hub, a, b, stop } = rig()
+  const e = hub.add('k', a, 't1', stop)
+  hub.attach(b, 't9', 'k')
+  e.emit('claude:message', { msg: { type: 'x' } })
+  assert.equal(last(a, 'claude:message').tab, 't1')
+  assert.equal(last(b, 'claude:message').tab, 't9')
+})
+
+test('routes resolve per client and tab', () => {
+  const { hub, a, b, stop } = rig()
+  hub.add('k', a, 't1', stop)
+  hub.attach(b, 't9', 'k')
+  assert.equal(hub.get('a', 't1').key, 'k')
+  assert.equal(hub.get('b', 't9').key, 'k')
+  assert.equal(hub.get('b', 't1'), undefined)
+})
+
+test('attach replays meta and open permissions to the new subscriber only', () => {
+  const { hub, a, c, stop } = rig()
+  const e = hub.add('k', a, 't1', stop)
+  e.emit('claude:meta', { commands: [1] })
+  e.emit('claude:permission', { id: 'p1' })
+  hub.attach(c, 't2', 'k')
+  assert.equal(last(c, 'claude:permission').id, 'p1')
+  assert.equal(last(c, 'claude:meta').tab, 't2')
+  assert.equal(count(a, 'claude:permission'), 1)
+})
+
+test('first permission answer wins, others are told', () => {
+  const { hub, a, b, stop } = rig()
+  const e = hub.add('k', a, 't1', stop)
+  hub.attach(b, 't9', 'k')
+  e.emit('claude:permission', { id: 'p1' })
+  assert.equal(e.answered('p1', 'b'), true)
+  assert.equal(e.answered('p1', 'a'), false)
+  assert.equal(last(a, 'claude:permission-done').id, 'p1')
+  assert.equal(last(b, 'claude:permission-done'), undefined)
+})
+
+test('busy, init and result each announce a change', () => {
+  const { hub, a, stop } = rig()
+  const e = hub.add('k', a, 't1', stop)
+  const n = () => count(a, 'sessions:changed')
+  let before = n()
+  e.markBusy()
+  assert.equal(n(), before + 1)
+  before = n()
+  e.emit('claude:message', { msg: { type: 'system', subtype: 'init', session_id: 's1' } })
+  assert.equal(e.sessionId, 's1')
+  assert.equal(n(), before + 1)
+  before = n()
+  e.emit('claude:message', { msg: { type: 'result' } })
+  assert.equal(e.busy, false)
+  assert.equal(n(), before + 1)
+})
+
+test('dropping a client keeps its session as an orphan', () => {
+  const { hub, a, stop } = rig()
+  hub.add('k', a, 't1', stop)
+  hub.drop('a')
+  const [row] = hub.list('z')
+  assert.equal(row.key, 'k')
+  assert.equal(row.here, false)
+})
+
+test('list marks the sessions this client is watching', () => {
+  const { hub, a, stop } = rig()
+  hub.add('k', a, 't1', stop)
+  assert.equal(hub.list('a')[0].here, true)
+})
+
+test('sweep stops idle orphans only', () => {
+  const r = rig()
+  r.hub.add('k', r.a, 't1', r.stop)
+  r.hub.drop('a')
+  r.clock.t += 900000 - 1
+  assert.deepEqual(r.hub.sweep(), [])
+  r.clock.t += 1
+  assert.deepEqual(r.hub.sweep(), ['k'])
+  assert.equal(r.stopped, 1)
+  assert.equal(r.hub.list('z').length, 0)
+})
+
+test('sweep never stops a busy orphan', () => {
+  const r = rig()
+  r.hub.add('k2', r.a, 't1', r.stop).markBusy()
+  r.hub.drop('a')
+  r.clock.t += 10 * 900000
+  assert.deepEqual(r.hub.sweep(), [])
+})
+
+test('sweep never stops a watched session', () => {
+  const r = rig()
+  r.hub.add('k', r.a, 't1', r.stop)
+  r.clock.t += 10 * 900000
+  assert.deepEqual(r.hub.sweep(), [])
+})
+
+test('detach reports who is left, remove clears the routes', () => {
+  const { hub, a, b, stop } = rig()
+  hub.add('k', a, 't1', stop)
+  hub.attach(b, 't9', 'k')
+  assert.equal(hub.detach('b', 't9'), 1)
+  assert.equal(hub.get('b', 't9'), undefined)
+  hub.remove('k')
+  assert.equal(hub.get('a', 't1'), undefined)
+})
+
+test('attach to an unknown session is null', () => {
+  const { hub, a } = rig()
+  assert.equal(hub.attach(a, 't1', 'nope'), null)
 })
