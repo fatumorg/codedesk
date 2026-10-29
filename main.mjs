@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
-import { createHub, createShared, pickShared } from './remote.mjs'
+import { createDevices, createHub, createRemoteServer, createShared, parseTailscale, pickShared } from './remote.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appUrl = pathToFileURL(path.join(here, 'ui/index.html')).href
@@ -479,6 +479,56 @@ handle('statusLine', async (_, input) => {
   })
 })
 
+const REMOTE_PORT = 4870
+const REMOTE_BLOCKED = new Set(['find', 'pickFolder', 'saveFile', 'addAccount'])
+const tailscalePath = findBin('tailscale')
+let devices, remote
+let remoteError = null
+
+async function startRemote() {
+  if (remote.port) return
+  try {
+    await remote.listen(REMOTE_PORT)
+    remoteError = null
+  } catch (e) {
+    remoteError = e.code === 'EADDRINUSE' ? `Port ${REMOTE_PORT} is already in use` : String(e.message || e)
+  }
+}
+
+async function remoteStatus() {
+  const installed = !!tailscalePath
+  const [status, serve] = installed
+    ? await Promise.all([run(tailscalePath, ['status', '--json'], { timeout: 8000 }), run(tailscalePath, ['serve', 'status', '--json'], { timeout: 8000 })])
+    : [{}, {}]
+  return {
+    enabled: devices.enabled,
+    listening: !!remote.port,
+    error: remoteError,
+    devices: devices.list(),
+    tailscale: { installed, ...parseTailscale(status.code ? null : status.stdout, serve.code ? null : serve.stdout, REMOTE_PORT) },
+  }
+}
+
+handle('remoteStatus', () => remoteStatus())
+handle('remoteSet', async (_, on) => {
+  await devices.setEnabled(on)
+  if (on) await startRemote()
+  else { await remote.close(); remoteError = null }
+  return remoteStatus()
+})
+handle('remotePair', () => ({ code: devices.startPairing(), expires: Date.now() + 5 * 60000 }))
+handle('remoteRevoke', async (_, id) => {
+  if (id === 'all') await devices.revokeAll()
+  else await devices.revoke(id)
+  return remoteStatus()
+})
+handle('remoteTailscale', async () => {
+  const command = `tailscale serve --bg ${REMOTE_PORT}`
+  if (!tailscalePath) return { ok: false, error: 'Tailscale is not installed', command }
+  const r = await run(tailscalePath, ['serve', '--bg', String(REMOTE_PORT)], { timeout: 20000 })
+  return r.code ? { ok: false, error: (r.stderr || r.stdout).trim(), command } : { ok: true, command }
+})
+
 let shared
 ipcMain.on('shared', e => {
   if (e.senderFrame !== e.sender.mainFrame || !e.senderFrame.url.startsWith(appUrl)) throw new Error('Blocked IPC from untrusted frame')
@@ -572,25 +622,43 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
   { role: 'windowMenu' },
 ]))
 
-const argDir = process.argv.slice(1).find(a => !a.startsWith('-') && path.resolve(a) !== app.getAppPath() && existsSync(a) && statSync(a).isDirectory())
+const dirFrom = argv => {
+  const dir = argv.slice(1).find(a => !a.startsWith('-') && path.resolve(a) !== app.getAppPath() && existsSync(a) && statSync(a).isDirectory())
+  return dir && path.resolve(dir)
+}
+const background = process.argv.includes('--background')
 
 app.setName('Codedesk')
 const userData = path.join(app.getPath('appData'), 'Codedesk'), oldData = path.join(app.getPath('appData'), 'Claude Code')
 if (!existsSync(userData) && existsSync(oldData)) cpSync(oldData, userData, { recursive: true })
 app.setPath('userData', userData)
 app.enableSandbox()
+const gotLock = app.requestSingleInstanceLock()
 const ALLOWED = new Set(['notifications', 'clipboard-sanitized-write', 'fullscreen'])
-app.whenReady().then(async () => {
+if (!gotLock) app.quit()
+app.on('second-instance', (_, argv) => createWindow(dirFrom(argv)))
+if (gotLock) app.whenReady().then(async () => {
   shared = createShared(path.join(userData, 'shared.json'))
-  await shared.load()
+  devices = createDevices(path.join(userData, 'remote.json'))
+  await Promise.all([shared.load(), devices.load()])
+  remote = createRemoteServer({
+    appDir: here, devices, hub, shared,
+    info: () => handlers.get('info')(),
+    call: (ch, client, args) => handlers.get(ch)(client, ...args),
+    allowed: new Set([...handlers.keys()].filter(c => !REMOTE_BLOCKED.has(c) && !c.startsWith('remote'))),
+    onPair: d => winClients.forEach(c => c.send('remote:paired', { name: d.name })),
+  })
+  if (devices.enabled) await startRemote()
   session.defaultSession.setPermissionRequestHandler((_, perm, cb) => cb(ALLOWED.has(perm)))
   session.defaultSession.setPermissionCheckHandler((_, perm) => ALLOWED.has(perm))
-  createWindow(argDir && path.resolve(argDir))
+  if (!background) createWindow(dirFrom(process.argv))
+  else if (!devices.enabled) app.quit()
 })
 app.on('will-quit', () => {
+  killTerms(() => true)
   for (const k of [...sessions.keys()]) stopSession(k)
   if (tempDir) rmSync(tempDir, { recursive: true, force: true })
 })
 setInterval(() => { hub.sweep(); killTerms(t => !t.client.alive()) }, 60000).unref()
 app.on('activate', () => BrowserWindow.getAllWindows().length || createWindow())
-app.on('window-all-closed', () => { killTerms(() => true); process.platform !== 'darwin' && app.quit() })
+app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !devices?.enabled) app.quit() })

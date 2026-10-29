@@ -426,18 +426,20 @@ export function createRemoteServer({ appDir, devices, hub, shared, info, call, a
   return {
     get port() { return server?.address().port },
     listen(port = 4870) {
-      server = http.createServer((req, res) => { route(req, res).catch(() => { if (!res.headersSent) reply(res, 500); else res.end() }) })
+      const s = server = http.createServer((req, res) => { route(req, res).catch(() => { if (!res.headersSent) reply(res, 500); else res.end() }) })
       sweeper = setInterval(() => { for (const p of [...pages.values()]) if (!p.res && now() - p.lastConn >= PAGE_TTL) dropPage(p) }, 60000)
       sweeper.unref()
       return new Promise((resolve, reject) => {
-        server.once('error', reject)
-        server.listen(port, '127.0.0.1', resolve)
+        s.once('error', e => { clearInterval(sweeper); if (server === s) server = null; reject(e) })
+        s.listen(port, '127.0.0.1', resolve)
       })
     },
     async close() {
       clearInterval(sweeper)
       for (const p of [...pages.values()]) dropPage(p)
-      await new Promise(resolve => { server.close(resolve); server.closeAllConnections() })
+      const s = server
+      server = null
+      if (s?.listening) await new Promise(resolve => { s.close(resolve); s.closeAllConnections() })
     },
     previewUrl: file => `/preview?f=${encodeURIComponent(file)}`,
     previewHtml(html) {
@@ -447,4 +449,11 @@ export function createRemoteServer({ appDir, devices, hub, shared, info, call, a
       return `/preview?h=${id}`
     },
   }
+}
+
+export function parseTailscale(statusJson, serveJson, port = 4870) {
+  let dnsName
+  try { dnsName = JSON.parse(statusJson).Self?.DNSName?.replace(/\.$/, '') || undefined } catch {}
+  const serving = typeof serveJson === 'string' && (serveJson.includes(`127.0.0.1:${port}`) || serveJson.includes(`localhost:${port}`))
+  return { dnsName, serving }
 }

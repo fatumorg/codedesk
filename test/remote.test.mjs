@@ -4,7 +4,7 @@ import http from 'node:http'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createDevices, createHub, createOutbox, createRemoteServer, createShared, deviceName, pickShared } from '../remote.mjs'
+import { createDevices, createHub, createOutbox, createRemoteServer, createShared, deviceName, parseTailscale, pickShared } from '../remote.mjs'
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'cd-remote-'))
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
@@ -481,4 +481,27 @@ test('preview is sandboxed', async t => {
   assert.equal(f.headers.get('content-security-policy'), 'sandbox allow-scripts')
   assert.equal((await get('/preview', cookie)).status, 404)
   assert.equal((await get('/preview?f=package.json', cookie)).status, 404)
+})
+
+test('server can close before listening, listen again after closing, and reports a busy port', async t => {
+  const { srv } = await boot(t)
+  const base = { appDir: ROOT, devices: createDevices(path.join(tmp(), 'r.json')), hub: createHub(), shared: createShared(path.join(tmp(), 's.json')), info: () => ({}), call: async () => null, allowed: new Set() }
+  const fresh = createRemoteServer(base)
+  await fresh.close()
+  await fresh.listen(0)
+  const port = fresh.port
+  assert.ok(port > 0)
+  await fresh.close()
+  await fresh.listen(0)
+  await fresh.close()
+  const taken = createRemoteServer(base)
+  await assert.rejects(taken.listen(srv.port), { code: 'EADDRINUSE' })
+})
+
+test('tailscale status is read from the two json outputs', () => {
+  const status = JSON.stringify({ Self: { DNSName: 'box.tail1234.ts.net.' } })
+  const serve = JSON.stringify({ Web: { 'box.tail1234.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:4870' } } } } })
+  assert.deepEqual(parseTailscale(status, serve), { dnsName: 'box.tail1234.ts.net', serving: true })
+  assert.deepEqual(parseTailscale(status, '{}'), { dnsName: 'box.tail1234.ts.net', serving: false })
+  assert.deepEqual(parseTailscale('not json', null), { dnsName: undefined, serving: false })
 })
