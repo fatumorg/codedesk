@@ -47,7 +47,7 @@ const DEFAULTS = {
   density: 'comfortable', radius: 'soft', fontSize: 14, chatWidth: 780, motion: true, customCss: '',
   showThinking: true, expandTools: false, sounds: false, enterSends: true, notifications: true, autoContinue: true, continuePrompt: '', continuePrompts: {}, continueFirst: {}, account: 'system', projectAccounts: {}, sessionAccounts: {}, sessionPrefs: {}, autoSwitchAccount: false, saverModel: '', subagentModel: '', allowSubagents: true, compactAt: '', maxTurns: '', saverOn: false, saverQuickWords: 'explain, what is, what does, list, where is, rename, typo, format, summarize, translate', saverQuickModel: 'haiku', saverHeavyWords: 'design, architect, debug, refactor, migrate, implement, plan, security, review, investigate, fix', saverHeavyModel: 'opus', saverOtherModel: 'sonnet', editor: 'code',
   defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium', defaultUltracode: false,
-  panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], workspaces: {}, v: 2,
+  panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], workspaces: {}, projects: [], v: 2,
 }
 const ACCENTS = {
   terracotta: ['Terracotta', '#c96442', '#d97757'], ocean: ['Ocean', '#2f6fb0', '#6aa6e8'], forest: ['Forest', '#3d7a4f', '#74b98a'],
@@ -61,19 +61,26 @@ const FONTS = {
   geistMono: '"Geist Mono Variable", ui-monospace, monospace',
   systemMono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace',
 }
+const DEVICE_KEYS = new Set('theme palette accent accentCustom uiFont proseFont monoFont density radius fontSize chatWidth motion customCss panelWidth sidebar panel panelTab sounds notifications enterSends'.split(' '))
+const pickShared = obj => Object.fromEntries(Object.entries(obj).filter(([k]) => !DEVICE_KEYS.has(k) && k !== 'v'))
 const settings = (() => {
   let saved = {}
   try { saved = JSON.parse(localStorage.getItem('settings') || '{}') } catch {}
+  let projects = []
+  try { projects = JSON.parse(localStorage.getItem('projects') || '[]') } catch {}
   if (saved.v !== 2) {
     if (saved.serifProse === false) saved.proseFont = 'sans'
     for (const k of ['defaultMode', 'defaultModel', 'defaultEffort', 'serifProse']) delete saved[k]
   }
   if (saved.defaultEffort === 'ultracode') Object.assign(saved, { defaultEffort: 'xhigh', defaultUltracode: true })
-  return { ...DEFAULTS, ...saved, v: 2 }
+  return { ...DEFAULTS, projects, ...saved, ...api.shared, v: 2 }
 })()
+if (!api.shared) api.saveShared(pickShared(settings)).catch(() => {})
 function saveSettings(patch) {
   Object.assign(settings, patch)
   try { localStorage.setItem('settings', JSON.stringify(settings)) } catch {}
+  const shared = pickShared(patch)
+  if (Object.keys(shared).length) api.saveShared(shared).catch(() => {})
   applySettings()
 }
 function applySettings() {

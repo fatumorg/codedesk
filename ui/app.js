@@ -702,16 +702,11 @@ async function recentProjects() {
     p.last = Math.max(p.last, s.lastModified); p.count++
     map.set(s.cwd, p)
   }
-  let mine = []
-  try { mine = JSON.parse(localStorage.getItem('projects') || '[]') } catch {}
-  for (const m of mine) if (!map.has(m.cwd)) map.set(m.cwd, { cwd: m.cwd, last: m.last, count: 0 })
+  for (const m of settings.projects) if (!map.has(m.cwd)) map.set(m.cwd, { cwd: m.cwd, last: m.last, count: 0 })
   return [...map.values()].sort((a, b) => b.last - a.last)
 }
 function rememberProject(cwd) {
-  try {
-    const list = JSON.parse(localStorage.getItem('projects') || '[]').filter(p => p.cwd !== cwd)
-    localStorage.setItem('projects', JSON.stringify([{ cwd, last: Date.now() }, ...list].slice(0, 30)))
-  } catch {}
+  saveSettings({ projects: [{ cwd, last: Date.now() }, ...settings.projects.filter(p => p.cwd !== cwd)].slice(0, 30) })
 }
 
 async function renderWelcome() {
@@ -1275,6 +1270,12 @@ $('#find-input').onkeydown = e => {
 $('#find-next').onclick = () => api.find($('#find-input').value, { findNext: true, forward: true })
 $('#find-prev').onclick = () => api.find($('#find-input').value, { findNext: true, forward: false })
 $('#find-close').onclick = closeFind
+api.on('shared:changed', patch => {
+  Object.assign(settings, patch)
+  renderSessions()
+  renderWelcome()
+  App.tabChanged(App.active)
+})
 api.on('found', r => { if (r.finalUpdate) $('#find-count').textContent = r.matches ? `${r.activeMatchOrdinal}/${r.matches}` : 'No results' })
 
 api.on('claude:message', ({ tab, msg }) => {

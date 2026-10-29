@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
-import { createHub } from './remote.mjs'
+import { createHub, createShared, pickShared } from './remote.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appUrl = pathToFileURL(path.join(here, 'ui/index.html')).href
@@ -479,6 +479,17 @@ handle('statusLine', async (_, input) => {
   })
 })
 
+let shared
+ipcMain.on('shared', e => {
+  if (e.senderFrame !== e.sender.mainFrame || !e.senderFrame.url.startsWith(appUrl)) throw new Error('Blocked IPC from untrusted frame')
+  e.returnValue = shared.get()
+})
+handle('saveShared', async (client, patch) => {
+  const own = pickShared(patch)
+  await shared.save(own)
+  hub.broadcast('shared:changed', own, client.id)
+})
+
 const terms = new Map()
 const termKey = (client, id) => `${client.id}:${id}`
 const killTerms = pred => { for (const [k, t] of terms) if (pred(t)) { t.p.kill(); terms.delete(k) } }
@@ -569,7 +580,9 @@ if (!existsSync(userData) && existsSync(oldData)) cpSync(oldData, userData, { re
 app.setPath('userData', userData)
 app.enableSandbox()
 const ALLOWED = new Set(['notifications', 'clipboard-sanitized-write', 'fullscreen'])
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  shared = createShared(path.join(userData, 'shared.json'))
+  await shared.load()
   session.defaultSession.setPermissionRequestHandler((_, perm, cb) => cb(ALLOWED.has(perm)))
   session.defaultSession.setPermissionCheckHandler((_, perm) => ALLOWED.has(perm))
   createWindow(argDir && path.resolve(argDir))
