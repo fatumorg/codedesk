@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'">
+  <title>Pair with Codedesk</title>
+  <link rel="stylesheet" href="/node_modules/@fontsource-variable/geist/index.css">
+  <link rel="stylesheet" href="/node_modules/@fontsource-variable/newsreader/opsz.css">
+  <link rel="stylesheet" href="/ui/style.css">
+  <style>
+    body { display: grid; place-items: center; min-height: 100dvh; padding: 24px; overflow: auto; }
+    main { width: min(380px, 100%); display: grid; gap: 18px; padding: 30px 26px 26px; background: var(--surface); border: 1px solid var(--border); border-radius: calc(14px * var(--rk)); box-shadow: var(--shadow); }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+    .brand img { width: 28px; height: 28px; }
+    h1 { margin: 0; font-size: 28px; line-height: 1.15; }
+    p { margin: 0; }
+    form { display: grid; gap: 12px; }
+    input { text-align: center; font: 600 24px/1.2 var(--mono); letter-spacing: .18em; padding: 12px 10px; text-transform: uppercase; }
+    #err { color: var(--red); min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><img src="/build/icon.svg" alt=""><span>Codedesk</span></div>
+    <h1 class="serif">Pair this device</h1>
+    <p class="muted">Open Codedesk on your PC, go to Settings, Remote, press Pair a device, and type the code here.</p>
+    <form id="form" autocomplete="off">
+      <input id="code" class="field" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" aria-label="Pairing code" required autofocus>
+      <button class="primary block" type="submit">Pair</button>
+      <p id="err" role="alert"></p>
+    </form>
+  </main>
+  <script src="/ui/pair.js"></script>
+</body>
+</html>

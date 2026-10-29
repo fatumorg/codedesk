@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import http from 'node:http'
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -218,6 +220,231 @@ export function createShared(file) {
         await writeJson(file, snapshot)
       })
       return queue.then(() => snapshot)
+    },
+  }
+}
+
+export function createOutbox({ max = 5000, maxBytes = 8 << 20 } = {}) {
+  let items = []
+  let bytes = 0
+  let seq = 0
+  return {
+    push(ch, d) {
+      const size = JSON.stringify(d ?? null).length + ch.length
+      items.push({ id: ++seq, ch, d, size })
+      bytes += size
+      while (items.length > 1 && (items.length > max || bytes > maxBytes)) bytes -= items.shift().size
+      return seq
+    },
+    since(lastId) {
+      if (lastId > seq) return null
+      if (lastId < seq && (!items.length || lastId + 1 < items[0].id)) return null
+      return items.filter(e => e.id > lastId)
+    },
+  }
+}
+
+const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', json: 'application/json', webmanifest: 'application/manifest+json', pdf: 'application/pdf', txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8' }
+const typeOf = f => TYPES[path.extname(f).slice(1).toLowerCase()] || 'application/octet-stream'
+const PUBLIC = new Set(['/ui/pair.html', '/ui/pair.js', '/ui/style.css', '/ui/manifest.webmanifest', '/build/icon.svg', '/build/icon.png'])
+const PAGE_RE = /^[\w-]{8,64}$/
+const PAGE_TTL = 24 * 3600000
+
+export function createRemoteServer({ appDir, devices, hub, shared, info, call, allowed, onPair, outbox: outboxOptions, bodyLimit = 64 << 20, now = Date.now }) {
+  const pkg = JSON.parse(readFileSync(path.join(appDir, 'package.json'), 'utf8'))
+  const roots = ['/ui/', '/build/', '/vendor/', ...Object.keys(pkg.dependencies || {}).filter(d => d !== '@anthropic-ai/claude-agent-sdk').map(d => `/node_modules/${d}/`)]
+  const pages = new Map()
+  const previews = new Map()
+  let server
+  let sweeper
+
+  const headers = (res, extra = {}) => {
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    for (const [k, v] of Object.entries(extra)) res.setHeader(k, v)
+  }
+  const reply = (res, status, body = '', extra = {}) => {
+    headers(res, extra)
+    res.statusCode = status
+    res.end(body)
+  }
+  const json = (res, status, obj) => reply(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+  const sameOrigin = req => {
+    try { return new URL(req.headers.origin).host === req.headers.host } catch { return false }
+  }
+  const readBody = (req, limit) => new Promise(resolve => {
+    const chunks = []
+    let size = 0
+    let over = false
+    req.on('data', c => {
+      size += c.length
+      if (size > limit) { over = true; chunks.length = 0 } else if (!over) chunks.push(c)
+    })
+    req.on('end', () => resolve(over ? null : Buffer.concat(chunks).toString('utf8')))
+    req.on('error', () => resolve(null))
+  })
+  const authed = req => {
+    const m = /(?:^|;\s*)cd_device=([\w-]+)/.exec(req.headers.cookie || '')
+    return m ? devices.check(m[1]) : null
+  }
+
+  const writeEvent = (res, id, ch, d) => res.write(`${id === undefined ? '' : `id: ${id}\n`}data: ${JSON.stringify({ ch, d })}\n\n`)
+
+  function pageFor(device, pageId) {
+    const id = `p${device.id}:${pageId}`
+    let p = pages.get(id)
+    if (!p) {
+      const outbox = createOutbox(outboxOptions)
+      p = { id, deviceId: device.id, outbox, res: null, lastConn: now() }
+      p.client = {
+        id,
+        send: (ch, d) => { const eid = outbox.push(ch, d); if (p.res) writeEvent(p.res, eid, ch, d) },
+        alive: () => !!p.res || now() - p.lastConn < PAGE_TTL,
+      }
+      pages.set(id, p)
+      hub.connect(p.client)
+    }
+    return p
+  }
+  function dropPage(p) {
+    p.res?.end()
+    p.res = null
+    pages.delete(p.id)
+    hub.drop(p.id)
+  }
+
+  devices.onRevoke(deviceId => { for (const p of [...pages.values()]) if (p.deviceId === deviceId) dropPage(p) })
+
+  async function serveFile(res, file, extra = {}) {
+    let st
+    try { st = await fs.stat(file) } catch { return reply(res, 404) }
+    if (!st.isFile()) return reply(res, 404)
+    reply(res, 200, await fs.readFile(file), { 'Content-Type': typeOf(file), 'Cache-Control': 'no-cache', ...extra })
+  }
+
+  async function serveStatic(res, p) {
+    const root = roots.find(r => p.startsWith(r))
+    if (!root) return reply(res, 404)
+    const dir = path.resolve(appDir, root.slice(1))
+    const file = path.resolve(appDir, p.slice(1))
+    if (!file.startsWith(dir + path.sep)) return reply(res, 404)
+    return serveFile(res, file)
+  }
+
+  async function pair(req, res) {
+    if (!sameOrigin(req)) return reply(res, 403)
+    const body = await readBody(req, 4096)
+    let code
+    try { code = JSON.parse(body).code } catch {}
+    const r = typeof code === 'string' ? await devices.pair(code, req.headers['user-agent'] || '') : null
+    if (!r) return reply(res, 403)
+    onPair?.(r.device)
+    reply(res, 204, '', { 'Set-Cookie': `cd_device=${r.token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=31536000` })
+  }
+
+  async function api(req, res, device, channel) {
+    if (req.headers['x-codedesk'] !== '1' || !sameOrigin(req)) return json(res, 403, { error: 'Forbidden' })
+    const pageId = req.headers['x-codedesk-page']
+    if (!PAGE_RE.test(pageId || '')) return json(res, 400, { error: 'Bad page' })
+    if (!allowed.has(channel)) return json(res, 404, { error: 'Unknown channel' })
+    const body = await readBody(req, bodyLimit)
+    if (body === null) return json(res, 413, { error: 'Request too large' })
+    let args
+    try { args = JSON.parse(body || '[]') } catch { return json(res, 400, { error: 'Bad JSON' }) }
+    if (!Array.isArray(args)) return json(res, 400, { error: 'Bad arguments' })
+    const page = pageFor(device, pageId)
+    try { json(res, 200, { ok: await call(channel, page.client, args) }) } catch (e) { json(res, 200, { error: String(e?.message || e) }) }
+  }
+
+  function events(req, res, device, url) {
+    const pageId = url.searchParams.get('page')
+    if (!PAGE_RE.test(pageId || '')) return reply(res, 400)
+    const prev = url.searchParams.get('prev')
+    if (prev && prev !== pageId) { const old = pages.get(`p${device.id}:${prev}`); if (old) dropPage(old) }
+    const page = pageFor(device, pageId)
+    page.res?.end()
+    headers(res, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' })
+    res.statusCode = 200
+    res.write('retry: 2000\n\n')
+    const last = req.headers['last-event-id']
+    const missed = page.outbox.since(last === undefined ? 0 : Number(last) || 0)
+    if (missed === null) writeEvent(res, undefined, 'remote:resync', {})
+    else for (const e of missed) writeEvent(res, e.id, e.ch, e.d)
+    page.res = res
+    page.lastConn = now()
+    const ping = setInterval(() => res.write(': ping\n\n'), 25000)
+    res.on('close', () => {
+      clearInterval(ping)
+      if (page.res === res) { page.res = null; page.lastConn = now() }
+    })
+  }
+
+  async function index(res) {
+    const html = await fs.readFile(path.join(appDir, 'ui/index.html'), 'utf8')
+    const out = html
+      .replace('</head>', '  <link rel="manifest" href="/ui/manifest.webmanifest">\n</head>')
+      .replace('<script', '<script src="/boot.js"></script>\n  <script src="/ui/remote.js"></script>\n  <script')
+    reply(res, 200, out, { 'Content-Type': TYPES.html, 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'none'" })
+  }
+
+  async function boot(res) {
+    const data = JSON.stringify({ shared: shared.get(), info: await info() }).replace(/</g, '\\u003c')
+    reply(res, 200, `window.__codedesk=${data}`, { 'Content-Type': TYPES.js, 'Cache-Control': 'no-store' })
+  }
+
+  async function preview(res, url) {
+    const sandbox = { 'Content-Security-Policy': 'sandbox allow-scripts', 'Cache-Control': 'no-store' }
+    const h = url.searchParams.get('h')
+    const f = url.searchParams.get('f')
+    if (h && previews.has(h)) return reply(res, 200, previews.get(h), { 'Content-Type': TYPES.html, ...sandbox })
+    if (f && path.isAbsolute(f)) return serveFile(res, f, sandbox)
+    reply(res, 404)
+  }
+
+  async function route(req, res) {
+    let url, p
+    try { url = new URL(req.url, 'http://x'); p = decodeURIComponent(url.pathname) } catch { return reply(res, 400) }
+    if (p.includes('\0')) return reply(res, 400)
+    const read = req.method === 'GET' || req.method === 'HEAD'
+    if (p === '/pair') {
+      if (req.method === 'POST') return pair(req, res)
+      if (read) return serveFile(res, path.join(appDir, 'ui/pair.html'), { 'Content-Security-Policy': "frame-ancestors 'none'" })
+    }
+    if (read && (PUBLIC.has(p) || p.startsWith('/node_modules/@fontsource-variable/'))) return serveStatic(res, p)
+    const device = await authed(req)
+    if (!device) return p.startsWith('/api/') || p === '/events' ? json(res, 401, { error: 'Not paired' }) : reply(res, 302, '', { Location: '/pair' })
+    if (req.method === 'POST' && p.startsWith('/api/')) return api(req, res, device, p.slice(5))
+    if (!read) return reply(res, 405)
+    if (p === '/') return reply(res, 302, '', { Location: '/ui/index.html' })
+    if (p === '/ui/index.html') return index(res)
+    if (p === '/boot.js') return boot(res)
+    if (p === '/events') return events(req, res, device, url)
+    if (p === '/preview') return preview(res, url)
+    return serveStatic(res, p)
+  }
+
+  return {
+    get port() { return server?.address().port },
+    listen(port = 4870) {
+      server = http.createServer((req, res) => { route(req, res).catch(() => { if (!res.headersSent) reply(res, 500); else res.end() }) })
+      sweeper = setInterval(() => { for (const p of [...pages.values()]) if (!p.res && now() - p.lastConn >= PAGE_TTL) dropPage(p) }, 60000)
+      sweeper.unref()
+      return new Promise((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(port, '127.0.0.1', resolve)
+      })
+    },
+    async close() {
+      clearInterval(sweeper)
+      for (const p of [...pages.values()]) dropPage(p)
+      await new Promise(resolve => { server.close(resolve); server.closeAllConnections() })
+    },
+    previewUrl: file => `/preview?f=${encodeURIComponent(file)}`,
+    previewHtml(html) {
+      const id = randomUUID()
+      previews.set(id, html)
+      if (previews.size > 50) previews.delete(previews.keys().next().value)
+      return `/preview?h=${id}`
     },
   }
 }
