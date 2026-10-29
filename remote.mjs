@@ -194,3 +194,30 @@ export function createHub({ now = Date.now, idleMs = 900000 } = {}) {
     },
   }
 }
+
+export const DEVICE_KEYS = new Set(('theme palette accent accentCustom uiFont proseFont monoFont density radius fontSize chatWidth motion customCss panelWidth sidebar panel panelTab sounds notifications enterSends').split(' '))
+
+export const pickShared = obj => Object.fromEntries(Object.entries(obj || {}).filter(([k]) => !DEVICE_KEYS.has(k) && k !== 'v'))
+
+export function createShared(file) {
+  let data = null
+  let queue = Promise.resolve()
+  return {
+    async load() {
+      try {
+        const s = JSON.parse(await fs.readFile(file, 'utf8'))
+        data = s && typeof s === 'object' && !Array.isArray(s) ? s : null
+      } catch { data = null }
+    },
+    get: () => data,
+    save(patch) {
+      data = { ...(data || {}), ...pickShared(patch) }
+      const snapshot = data
+      queue = queue.then(async () => {
+        await fs.mkdir(path.dirname(file), { recursive: true })
+        await writeJson(file, snapshot)
+      })
+      return queue.then(() => snapshot)
+    },
+  }
+}

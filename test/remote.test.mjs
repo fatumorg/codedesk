@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createDevices, createHub, deviceName } from '../remote.mjs'
+import { createDevices, createHub, createShared, deviceName, pickShared } from '../remote.mjs'
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'cd-remote-'))
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
@@ -213,4 +213,35 @@ test('detach reports who is left, remove clears the routes', () => {
 test('attach to an unknown session is null', () => {
   const { hub, a } = rig()
   assert.equal(hub.attach(a, 't1', 'nope'), null)
+})
+
+test('device keys never get shared', () => {
+  assert.deepEqual(pickShared({ theme: 'dark', sidebar: false, workspaces: { '/a': ['/b'] }, v: 2 }), { workspaces: { '/a': ['/b'] } })
+})
+
+test('missing shared file reads as null', async () => {
+  const s = createShared(path.join(tmp(), 'none.json'))
+  await s.load()
+  assert.equal(s.get(), null)
+})
+
+test('corrupt shared file reads as null and is not overwritten on load', async () => {
+  const f = path.join(tmp(), 'shared.json')
+  writeFileSync(f, '{"work')
+  const s = createShared(f)
+  await s.load()
+  assert.equal(s.get(), null)
+  assert.equal(readFileSync(f, 'utf8'), '{"work')
+})
+
+test('shared save merges, skips device keys and persists', async () => {
+  const f = path.join(tmp(), 'shared.json')
+  const s = createShared(f)
+  await s.load()
+  await s.save({ pinned: ['x'], theme: 'dark' })
+  const merged = await s.save({ account: 'a1' })
+  assert.deepEqual(merged, { pinned: ['x'], account: 'a1' })
+  const s2 = createShared(f)
+  await s2.load()
+  assert.deepEqual(s2.get(), { pinned: ['x'], account: 'a1' })
 })
