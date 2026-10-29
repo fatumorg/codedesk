@@ -14,7 +14,7 @@ export function claudeFiles(home, env = {}) {
 const SHARED_SKIP = /^(\.credentials\.json|\.claude\.json|codedesk\.json|daemon.*|.*\.lock)$/
 const readJson = f => fs.readFile(f, 'utf8').then(JSON.parse).catch(() => ({}))
 const readJsonOrNull = f => fs.readFile(f, 'utf8').then(JSON.parse, e => (e.code === 'ENOENT' ? {} : null)).catch(() => null)
-async function writeJson(f, data) {
+export async function writeJson(f, data) {
   const tmp = `${f}.${randomUUID()}.tmp`
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 })
   await fs.rename(tmp, f)
