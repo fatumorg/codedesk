@@ -435,13 +435,14 @@ handle('appendMemory', async (_, file, text) => {
   await fs.appendFile(file, (prev && !prev.endsWith('\n') ? '\n' : '') + '- ' + text + '\n')
 })
 let tempSeq = 0, tempDir
-handle('writeTemp', async (_, html) => {
+handle('writeTemp', async (client, html) => {
+  if (client.id[0] === 'p') return remote.previewHtml(html)
   tempDir ||= await fs.mkdtemp(path.join(tmpdir(), 'codedesk-'))
   const file = path.join(tempDir, `preview-${++tempSeq}.html`)
   await fs.writeFile(file, html)
   return pathToFileURL(file).href
 })
-handle('fileUrl', (_, p) => pathToFileURL(p).href)
+handle('fileUrl', (client, p) => client.id[0] === 'p' ? remote.previewUrl(p) : pathToFileURL(p).href)
 handle('openPath', (_, p) => shell.openPath(p))
 handle('openInEditor', (_, cmd, file, line) => {
   const [bin, ...args] = (cmd || '').trim().split(/\s+/).filter(Boolean)

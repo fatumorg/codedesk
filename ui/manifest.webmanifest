@@ -1,0 +1,10 @@
+{
+  "name": "Codedesk",
+  "short_name": "Codedesk",
+  "start_url": "/ui/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1c1b19",
+  "theme_color": "#1c1b19",
+  "icons": [{ "src": "/build/icon.png", "sizes": "512x512", "type": "image/png" }]
+}
