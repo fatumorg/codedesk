@@ -142,6 +142,16 @@ test('first permission answer wins, others are told', () => {
   assert.equal(last(b, 'claude:permission-done'), undefined)
 })
 
+test('another tab of the answering client is told too', () => {
+  const { hub, a, stop } = rig()
+  const e = hub.add('k', a, 't1', stop)
+  hub.attach(a, 't2', 'k')
+  e.emit('claude:permission', { id: 'p1' })
+  assert.equal(e.answered('p1', 'a', 't2'), true)
+  assert.equal(last(a, 'claude:permission-done').tab, 't1')
+  assert.equal(count(a, 'claude:permission-done'), 1)
+})
+
 test('busy, init and result each announce a change', () => {
   const { hub, a, stop } = rig()
   const e = hub.add('k', a, 't1', stop)

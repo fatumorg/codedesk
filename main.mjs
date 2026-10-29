@@ -9,13 +9,29 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
+import { createHub } from './remote.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appUrl = pathToFileURL(path.join(here, 'ui/index.html')).href
-const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => {
-  if (e.senderFrame !== e.sender.mainFrame || !e.senderFrame.url.startsWith(appUrl)) throw new Error('Blocked IPC from untrusted frame')
-  return fn(e, ...a)
-})
+const hub = createHub()
+const handlers = new Map()
+const winClients = new Map()
+const winClient = wc => {
+  let c = winClients.get(wc.id)
+  if (!c) {
+    c = { id: 'w' + wc.id, wc, send: (ch, d) => wc.send(ch, d), alive: () => !wc.isDestroyed() }
+    winClients.set(wc.id, c)
+    hub.connect(c)
+  }
+  return c
+}
+const handle = (ch, fn) => {
+  handlers.set(ch, fn)
+  ipcMain.handle(ch, (e, ...a) => {
+    if (e.senderFrame !== e.sender.mainFrame || !e.senderFrame.url.startsWith(appUrl)) throw new Error('Blocked IPC from untrusted frame')
+    return fn(winClient(e.sender), ...a)
+  })
+}
 const win32 = process.platform === 'win32'
 
 function findBin(name) {
@@ -41,7 +57,10 @@ const run = (cmd, args, opts = {}) => new Promise(resolve =>
     resolve({ code: err ? (err.code ?? 1) : 0, stdout: String(stdout), stderr: String(stderr || (err && !stdout ? err.message : '')) })))
 
 const sessions = new Map()
-const key = (e, tab) => `${e.sender.id}:${tab}`
+const route = (client, tab) => {
+  const entry = hub.get(client.id, tab)
+  return entry && sessions.get(entry.key)
+}
 const isGemini = m => /^gemini/i.test(m || '')
 
 const storePath = () => path.join(app.getPath('userData'), 'agy-sessions.json')
@@ -110,13 +129,29 @@ async function runGeminiTurn(s, send, msg) {
   send('claude:message', { msg: { type: 'result', subtype: failed ? 'error' : 'success', is_error: failed, result: failed ? st.error : undefined, duration_ms: Date.now() - startTs, num_turns: 1, total_cost_usd: 0 } })
 }
 
-async function startGeminiSession(wc, tab, opts) {
-  const k = `${wc.id}:${tab}`
-  stopSession(k)
+function restartTab(client, tab) {
+  const prev = hub.get(client.id, tab)
+  if (!prev) return
+  hub.detach(client.id, tab)
+  stopSession(prev.key)
+}
+
+function leaveTab(client, tab) {
+  const entry = hub.get(client.id, tab)
+  if (entry && hub.detach(client.id, tab) === 0) stopSession(entry.key)
+}
+
+async function startGeminiSession(client, tab, opts) {
+  restartTab(client, tab)
   const store = await readGeminiStore()
   const existing = opts.resume && store[opts.resume]
-  const send = (ch, data) => { if (!wc.isDestroyed()) wc.send(ch, { tab, ...data }) }
+  const key = crypto.randomUUID()
+  const entry = hub.add(key, client, tab, () => stopSession(key))
+  entry.info = { cwd: opts.cwd, model: opts.model, permissionMode: opts.permissionMode || 'default', account: opts.account }
+  const send = (ch, data) => entry.emit(ch, data)
   const s = {
+    key,
+    entry,
     isGemini: true,
     account: opts.account,
     sessionId: existing ? opts.resume : crypto.randomUUID(),
@@ -149,7 +184,7 @@ async function startGeminiSession(wc, tab, opts) {
       mcpServerStatus: async () => [],
     },
   }
-  sessions.set(k, s)
+  sessions.set(key, s)
   send('claude:meta', { commands: [], models: await getAgyModels(), agents: [] })
   send('claude:message', {
     msg: {
@@ -159,6 +194,7 @@ async function startGeminiSession(wc, tab, opts) {
       output_style: 'default', permissionMode: s.permissionMode, slash_commands: [],
     },
   })
+  return key
 }
 
 function saverOptions(saver = {}, accountEnv) {
@@ -174,24 +210,27 @@ function saverOptions(saver = {}, accountEnv) {
   }
 }
 
-async function startSession(wc, tab, opts) {
+async function startSession(client, tab, opts) {
   const { cwd, resume, model, permissionMode, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
-  if (!existsSync(cwd)) return wc.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
-  if (isGemini(model)) return startGeminiSession(wc, tab, opts)
+  if (!existsSync(cwd)) return client.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
+  if (isGemini(model)) return startGeminiSession(client, tab, opts)
   const accountEnv = await accounts().env(opts.account)
-  const k = `${wc.id}:${tab}`
-  stopSession(k)
+  restartTab(client, tab)
+  const key = crypto.randomUUID()
+  const entry = hub.add(key, client, tab, () => stopSession(key))
+  entry.info = { cwd, model, permissionMode: permissionMode || 'default', account: opts.account, effort }
+  if (resume && !fork) { entry.sessionId = resume; hub.broadcast('sessions:changed', {}) }
   const inbox = []
   let wake = null
   const pending = new Map()
-  const s = { q: null, pending, closed: false, account: opts.account, push: m => { inbox.push(m); wake?.() } }
+  const s = { key, entry, q: null, pending, closed: false, account: opts.account, push: m => { inbox.push(m); wake?.() } }
   async function* prompts() {
     while (!s.closed) {
       if (inbox.length) yield inbox.shift()
       else await new Promise(r => (wake = r))
     }
   }
-  const send = (ch, data) => { if (!wc.isDestroyed()) wc.send(ch, { tab, ...data }) }
+  const send = (ch, data) => entry.emit(ch, data)
 
   s.q = query({
     prompt: prompts(),
@@ -217,12 +256,12 @@ async function startSession(wc, tab, opts) {
         new Promise(resolve => {
           const id = crypto.randomUUID()
           pending.set(id, resolve)
-          signal.addEventListener('abort', () => { pending.delete(id); resolve({ behavior: 'deny', message: 'Aborted' }) })
+          signal.addEventListener('abort', () => { pending.delete(id); entry.pending.delete(id); resolve({ behavior: 'deny', message: 'Aborted' }) })
           send('claude:permission', { id, toolName, input, suggestions, decisionReason, title })
         }),
     },
   })
-  sessions.set(k, s)
+  sessions.set(key, s)
 
   ;(async () => {
     try {
@@ -230,44 +269,61 @@ async function startSession(wc, tab, opts) {
     } catch (e) {
       if (!s.closed) send('claude:error', { error: String(e?.message || e) })
     }
-    if (!s.closed) { sessions.delete(k); send('claude:ended', {}) }
+    if (!s.closed) { sessions.delete(key); send('claude:ended', {}); hub.remove(key) }
   })()
 
   Promise.all([s.q.supportedCommands(), s.q.supportedModels(), s.q.supportedAgents().catch(() => []), getAgyModels()])
     .then(([commands, models, agents, gm]) => send('claude:meta', { commands, models: [...gm, ...(models || [])], agents }))
     .catch(() => send('claude:meta', { commands: [], models: [], agents: [] }))
+  return key
 }
 
-function stopSession(k) {
-  const s = sessions.get(k)
+function stopSession(key) {
+  const s = sessions.get(key)
   if (!s) return
   s.closed = true
   for (const r of s.pending.values()) r({ behavior: 'deny', message: 'Session closed' })
   if (!s.isGemini) s.push(null)
   try { s.q.close() } catch {}
-  sessions.delete(k)
+  sessions.delete(key)
+  s.entry.emit('claude:ended', {})
+  hub.remove(key)
 }
 
 const CONTROL = new Set(['interrupt', 'setModel', 'setPermissionMode', 'setMaxThinkingTokens', 'applyFlagSettings',
   'mcpServerStatus', 'reconnectMcpServer', 'toggleMcpServer', 'getContextUsage', 'accountInfo', 'rewindFiles',
   'stopTask', 'reloadSkills', 'reloadPlugins'])
 
-handle('start', (e, tab, opts) => startSession(e.sender, tab, opts))
-handle('stop', (e, tab) => stopSession(key(e, tab)))
-handle('send', (e, tab, msg) => sessions.get(key(e, tab))?.push({ type: 'user', parent_tool_use_id: null, ...msg }))
-handle('control', async (e, tab, method, ...args) => {
-  const s = sessions.get(key(e, tab))
+handle('start', (client, tab, opts) => startSession(client, tab, opts))
+handle('stop', (client, tab) => leaveTab(client, tab))
+handle('send', (client, tab, msg) => {
+  const s = route(client, tab)
+  if (!s) return
+  if (msg?.shouldQuery !== false) s.entry.markBusy()
+  s.push({ type: 'user', parent_tool_use_id: null, ...msg })
+})
+handle('control', async (client, tab, method, ...args) => {
+  const s = route(client, tab)
   if (!s || !CONTROL.has(method)) return null
   if (method === 'setModel' && isGemini(args[0]) !== !!s.isGemini) {
-    startSession(e.sender, tab, { cwd: s.cwd, model: args[0], permissionMode: s.permissionMode, effort: s.effort, account: s.account })
+    startSession(client, tab, { ...s.entry.info, model: args[0] })
     return null
   }
+  if (method === 'setModel') s.entry.info.model = args[0]
+  if (method === 'setPermissionMode') s.entry.info.permissionMode = args[0]
   return s.q[method]?.(...args) ?? null
 })
-handle('permit', (e, tab, id, result) => {
-  const s = sessions.get(key(e, tab)), r = s?.pending.get(id)
-  if (r) { s.pending.delete(id); r(result) }
+handle('permit', (client, tab, id, result) => {
+  const s = route(client, tab), r = s?.pending.get(id)
+  if (r && s.entry.answered(id, client.id, tab)) { s.pending.delete(id); r(result) }
 })
+handle('liveSessions', client => hub.list(client.id))
+handle('attach', (client, tab, key) => {
+  const entry = hub.get(client.id, tab)
+  if (entry && entry.key !== key) leaveTab(client, tab)
+  return hub.attach(client, tab, key)
+})
+handle('detach', (client, tab) => { leaveTab(client, tab) })
 
 const idle = new Promise(() => {})
 const probes = new Map(), fresh = new Map()
@@ -288,8 +344,8 @@ function probeUsage(account, full) {
   })())
   return probes.get(k)
 }
-handle('usage', async (e, tab, full, account) => {
-  const own = sessions.get(key(e, tab))
+handle('usage', async (client, tab, full, account) => {
+  const own = route(client, tab)
   const live = full && own && !own.isGemini && !own.closed && (own.account || 'system') === (account || 'system') ? own : null
   const [u, mine] = await Promise.all([probeUsage(account, full), live ? readUsage(live.q, true) : null])
   return u && mine?.session ? { ...u, session: mine.session } : u
@@ -304,6 +360,8 @@ handle('listSessions', async (_, dir) => {
   return [...gList, ...claudeList].sort((a, b) => (b.lastModified || 0) - (a.lastModified || 0))
 })
 handle('history', async (_, id, dir) => {
+  const live = [...sessions.values()].find(s => s.isGemini && s.sessionId === id)
+  if (live) return live.history
   const gStore = await readGeminiStore()
   if (gStore[id]) return gStore[id].messages || []
   return getSessionMessages(id, { dir }).catch(() => [])
@@ -395,16 +453,16 @@ handle('openInEditor', (_, cmd, file, line) => {
 })
 handle('showItem', (_, p) => shell.showItemInFolder(p))
 handle('openExternal', (_, url) => /^https?:\/\//.test(url) && shell.openExternal(url))
-handle('pickFolder', async e => {
-  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openDirectory', 'createDirectory'] })
+handle('pickFolder', async client => {
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(client.wc), { properties: ['openDirectory', 'createDirectory'] })
   return r.canceled ? null : r.filePaths[0]
 })
-handle('saveFile', async (e, name, content) => {
-  const r = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), { defaultPath: name })
+handle('saveFile', async (client, name, content) => {
+  const r = await dialog.showSaveDialog(BrowserWindow.fromWebContents(client.wc), { defaultPath: name })
   if (!r.canceled) await fs.writeFile(r.filePath, content)
   return !r.canceled
 })
-handle('find', (e, text, opts) => text ? e.sender.findInPage(text, opts) : e.sender.stopFindInPage('clearSelection'))
+handle('find', (client, text, opts) => text ? client.wc.findInPage(text, opts) : client.wc.stopFindInPage('clearSelection'))
 handle('info', () => ({ claudePath: claudePath || 'bundled', agyPath: agyPath || null, home: homedir(), platform: process.platform, version: app.getVersion() }))
 
 handle('statusLine', async (_, input) => {
@@ -422,26 +480,28 @@ handle('statusLine', async (_, input) => {
 })
 
 const terms = new Map()
+const termKey = (client, id) => `${client.id}:${id}`
+const killTerms = pred => { for (const [k, t] of terms) if (pred(t)) { t.p.kill(); terms.delete(k) } }
 
-handle('termStart', (e, id, cwd, cols, rows) => {
+handle('termStart', (client, id, cwd, cols, rows) => {
   const sh = process.env.SHELL || '/bin/bash'
   const [cmd, args] = win32 ? ['powershell.exe', ['-NoLogo']]
     : process.platform === 'darwin' ? ['script', ['-q', '/dev/null', sh, '-il']]
     : ['script', ['-qfec', `${sh} -il`, '/dev/null']]
   const p = spawn(cmd, args, { cwd, env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' } })
-  const wc = e.sender
-  terms.set(id, p)
-  const out = d => !wc.isDestroyed() && wc.send('term:data', { id, data: d.toString() })
+  const k = termKey(client, id)
+  terms.set(k, { p, client })
+  const out = d => client.alive() && client.send('term:data', { id, data: d.toString() })
   p.stdout.on('data', out); p.stderr.on('data', out)
-  p.on('exit', () => { terms.delete(id); !wc.isDestroyed() && wc.send('term:exit', { id }) })
+  p.on('exit', () => { terms.delete(k); client.alive() && client.send('term:exit', { id }) })
   p.on('error', err => out(String(err)))
-  setTimeout(() => resize(id, cols, rows), 300)
+  setTimeout(() => resize(k, cols, rows), 300)
 })
-handle('termWrite', (_, id, data) => terms.get(id)?.stdin.write(data))
-handle('termResize', (_, id, cols, rows) => resize(id, cols, rows))
-handle('termKill', (_, id) => terms.get(id)?.kill())
-function resize(id, cols, rows) {
-  const p = terms.get(id)
+handle('termWrite', (client, id, data) => terms.get(termKey(client, id))?.p.stdin.write(data))
+handle('termResize', (client, id, cols, rows) => resize(termKey(client, id), cols, rows))
+handle('termKill', (client, id) => terms.get(termKey(client, id))?.p.kill())
+function resize(k, cols, rows) {
+  const p = terms.get(k)?.p
   if (!p || win32) return
   try {
     const kid = execFileSync('pgrep', ['-P', String(p.pid)]).toString().split('\n')[0].trim()
@@ -459,9 +519,12 @@ function createWindow(cwd) {
     backgroundColor: '#1c1b19',
     webPreferences: { preload: path.join(here, 'preload.cjs'), backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
   })
-  const id = win.webContents.id
+  const wcId = win.webContents.id
+  const client = winClient(win.webContents)
   win.on('closed', () => {
-    for (const k of [...sessions.keys()]) if (k.startsWith(id + ':')) stopSession(k)
+    hub.drop(client.id)
+    killTerms(t => t.client === client)
+    winClients.delete(wcId)
   })
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' } })
   win.webContents.on('will-navigate', ev => ev.preventDefault())
@@ -511,6 +574,10 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_, perm) => ALLOWED.has(perm))
   createWindow(argDir && path.resolve(argDir))
 })
-app.on('will-quit', () => { if (tempDir) rmSync(tempDir, { recursive: true, force: true }) })
+app.on('will-quit', () => {
+  for (const k of [...sessions.keys()]) stopSession(k)
+  if (tempDir) rmSync(tempDir, { recursive: true, force: true })
+})
+setInterval(() => { hub.sweep(); killTerms(t => !t.client.alive()) }, 60000).unref()
 app.on('activate', () => BrowserWindow.getAllWindows().length || createWindow())
-app.on('window-all-closed', () => { for (const p of terms.values()) p.kill(); process.platform !== 'darwin' && app.quit() })
+app.on('window-all-closed', () => { killTerms(() => true); process.platform !== 'darwin' && app.quit() })

@@ -154,9 +154,9 @@ export function createHub({ now = Date.now, idleMs = 900000 } = {}) {
           entry.lastActive = now()
           if (!entry.busy) { entry.busy = true; announce() }
         },
-        answered(id, byClientId) {
+        answered(id, byClientId, byTab) {
           if (!entry.pending.delete(id)) return false
-          for (const s of entry.subs) if (s.client.id !== byClientId) deliver(s.client, 'claude:permission-done', { tab: s.tab, id })
+          for (const s of entry.subs) if (s.client.id !== byClientId || (byTab !== undefined && s.tab !== byTab)) deliver(s.client, 'claude:permission-done', { tab: s.tab, id })
           return true
         },
       }
