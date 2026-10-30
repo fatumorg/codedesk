@@ -686,7 +686,7 @@ class Tab {
 
     const file = i.file_path || i.notebook_path
     if (file) head.querySelector('.tool-meta').append(iconButton('eye', 'Preview file', e => { e.preventDefault(); App.openFile(file) }, 'sm'),
-      iconButton('code', 'Open in editor', e => { e.preventDefault(); App.openInEditor(file) }, 'sm'))
+      iconButton('code', onPc('Open in editor'), e => { e.preventDefault(); App.openInEditor(file) }, 'sm'))
 
     if (name === 'Edit' || name === 'MultiEdit') {
       const rows = (i.edits || [i]).flatMap(e => lineDiff(e.old_string || '', e.new_string || ''))

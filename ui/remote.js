@@ -23,11 +23,20 @@ const api = (() => {
   }
   events.onerror = () => { if (events.readyState === 2) setTimeout(() => location.reload(), 2000) }
 
+  const PC_ONLY = 'Add accounts on the PC: Claude sign-in opens a browser there.'
+  const authCall = call('cli')
   const own = {
     shared: boot.shared ?? null,
+    cli: async args => {
+      if (/^(auth|mcp)$/.test(args[0]) && /^log(in|out)$/.test(args[1])) {
+        window.dispatchEvent(new CustomEvent('pc-only'))
+        return { code: 1, stdout: '', stderr: PC_ONLY }
+      }
+      return authCall(args)
+    },
     pathFor: () => '',
     find: async () => {},
-    addAccount: async () => ({ error: 'Add accounts on the PC: Claude sign-in opens a browser there.' }),
+    addAccount: async () => ({ error: PC_ONLY }),
     openExternal: url => { if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener') },
     pickFolder: () => App.browseFolder(),
     saveFile: async (name, content) => {

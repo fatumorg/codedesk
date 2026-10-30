@@ -18,6 +18,8 @@ const iconButton = (name, title, onclick, cls = '') => {
   b.setAttribute('aria-label', title)
   return b
 }
+const REMOTE = 'remote' in document.documentElement.dataset
+const onPc = label => (REMOTE ? label + ' on PC' : label)
 const basename = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p
 const sep = p => (p.includes('\\') && !p.includes('/') ? '\\' : '/')
 const join = (a, b) => (a.endsWith(sep(a)) ? a + b : a + sep(a) + b)

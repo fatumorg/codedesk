@@ -76,7 +76,7 @@ const Panels = {
       App.fileCache.delete(tab.cwd)
       App.openFile(full)
     }), iconButton('arrows-clockwise', 'Refresh', () => this.render()),
-      iconButton('folder-open', 'Open folder in file manager', () => api.openPath(tab.cwd)))
+      iconButton('folder-open', onPc('Open folder in file manager'), () => api.openPath(tab.cwd)))
     const tree = el('div', 'tree')
     const filter = el('input', 'field sm'); filter.placeholder = 'Find file…'
     const results = el('div', 'tree')
@@ -126,9 +126,9 @@ const Panels = {
   fileMenu(tab, full, dir) {
     return [
       { label: 'Mention in chat', icon: 'at', run: () => App.insertText('@' + App.relPath(tab, full) + ' ') },
-      ...(dir ? [] : [{ label: 'Edit', icon: 'pencil-simple', run: () => App.openFile(full, { edit: true }) }, { label: 'Open in editor', icon: 'code', run: () => App.openInEditor(full) }]),
-      { label: 'Open with default app', icon: 'arrow-square-out', run: () => api.openPath(full) },
-      { label: 'Show in file manager', icon: 'folder-open', run: () => api.showItem(full) },
+      ...(dir ? [] : [{ label: 'Edit', icon: 'pencil-simple', run: () => App.openFile(full, { edit: true }) }, { label: onPc('Open in editor'), icon: 'code', run: () => App.openInEditor(full) }]),
+      { label: onPc('Open with default app'), icon: 'arrow-square-out', run: () => api.openPath(full) },
+      { label: onPc('Show in file manager'), icon: 'folder-open', run: () => api.showItem(full) },
       { label: 'Copy path', icon: 'copy', run: () => copy(full) },
     ]
   },
@@ -206,7 +206,7 @@ const Panels = {
     const wrap = el('div', 'stack fill', el('div', 'row', urlBar))
     if (!s) { wrap.append(el('div', 'panel-empty', 'Open a file, an HTML/SVG code block, a diagram, or a local dev server URL to preview it here.')); return wrap }
     actions.append(...[
-      s.file && iconButton('arrow-square-out', 'Open with default app', () => api.openPath(s.file)),
+      s.file && iconButton('arrow-square-out', onPc('Open with default app'), () => api.openPath(s.file)),
       s.file && iconButton('at', 'Mention in chat', () => App.insertText('@' + App.relPath(tab, s.file) + ' ')),
       (s.html || s.markdown) && iconButton(s.source ? 'eye' : 'code', s.source ? 'Rendered' : 'Source', () => { s.source = !s.source; this.render() }),
       s.url && iconButton('arrows-clockwise', 'Reload', () => this.render()),

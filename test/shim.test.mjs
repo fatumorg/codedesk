@@ -91,6 +91,22 @@ test('shared settings come from the boot data and remote mode is flagged', () =>
   assert.equal(ctx.document.documentElement.dataset.remote, '')
 })
 
+test('signing in or out is a PC-only action: the call is not made and the page is told', async () => {
+  const { api, ctx, calls } = load()
+  const told = []
+  ctx.dispatchEvent = e => told.push(e.type)
+  ctx.CustomEvent = class { constructor(type) { this.type = type } }
+  for (const args of [['auth', 'login'], ['auth', 'logout'], ['mcp', 'login', 'x']]) {
+    const r = await api.cli(args)
+    assert.equal(r.code, 1)
+    assert.equal(r.stderr, 'Add accounts on the PC: Claude sign-in opens a browser there.')
+  }
+  assert.deepEqual(told, ['pc-only', 'pc-only', 'pc-only'])
+  assert.equal(calls.length, 0)
+  await api.cli(['--version'])
+  assert.equal(calls[0].url, '/api/cli')
+})
+
 test('saveFile downloads instead of opening a dialog', async () => {
   const { api, ctx } = load()
   const clicked = []

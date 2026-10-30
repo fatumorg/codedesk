@@ -134,6 +134,13 @@ body.with-panel #panel-resize { display: block; }
 .running-title { color: var(--fg); font-weight: 500; }
 .running-meta, .running-state { font-size: 12px; color: var(--muted); }
 .running-row .live-dot.wait ~ .running-state { color: var(--yellow); }
+.pair-code { font-size: 28px; font-weight: 600; letter-spacing: .14em; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: calc(9px * var(--rk)); background: var(--surface-2); width: fit-content; }
+.pair-code.muted { font-size: 14px; font-weight: 400; letter-spacing: 0; }
+.pair-code .small, .pair-code .timer { letter-spacing: 0; font-weight: 400; font-size: 13px; color: var(--muted); }
+.device-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 2px; }
+.device-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.folder-list { display: grid; align-content: start; gap: 2px; max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: calc(9px * var(--rk)); padding: 4px; min-height: 180px; }
+.folder-row { justify-content: flex-start; width: 100%; }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
 .live-dot.busy { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .live-dot.wait { background: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-bg); }

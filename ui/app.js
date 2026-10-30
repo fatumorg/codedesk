@@ -112,6 +112,31 @@ const App = {
     if (dir) this.openProject(dir, null, opts)
   },
 
+  browseFolder() {
+    return new Promise(resolve => {
+      let dir = App.info.home, done = false
+      const field = el('input', 'field mono')
+      field.spellcheck = false
+      const list = el('div', 'folder-list')
+      const finish = v => { if (!done) { done = true; resolve(v); m.close() } }
+      const parent = d => {
+        const s = sep(d), up = d.split(s).slice(0, -1).join(s)
+        return /^[A-Za-z]:$/.test(up) ? up + s : up || s
+      }
+      const go = async d => {
+        dir = d
+        field.value = d
+        const ents = (await api.listDir(d)).filter(e => e.dir && !e.name.startsWith('.'))
+        list.replaceChildren(...(ents.length ? ents.map(e => button(e.name, () => go(join(d, e.name)), 'ghost folder-row', 'folder')) : [el('div', 'side-empty', 'No folders here.')]))
+      }
+      field.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(field.value.trim() || dir) } }
+      const body = el('div', 'stack', el('div', 'row', iconButton('arrow-up', 'Up one folder', () => go(parent(dir))), field), list,
+        el('div', 'row end', button('Cancel', () => finish(null), 'ghost'), button('Open this folder', () => finish(dir), 'primary')))
+      const m = modal('Choose a folder on the PC', body, { onClose: () => finish(null) })
+      go(dir)
+    })
+  },
+
   async updateBranch(tab) {
     const r = await api.git(tab.cwd, ['branch', '--show-current'])
     tab.branch = r.code ? '' : r.stdout.trim()
@@ -1023,7 +1048,7 @@ $('#chat-title').onclick = () => renameConversation(App.active)
 $('#chat-path').onclick = e => {
   const tab = App.active
   menu(e.currentTarget, [
-    { label: 'Open in file manager', icon: 'folder-open', run: () => api.openPath(tab.cwd) },
+    { label: onPc('Open in file manager'), icon: 'folder-open', run: () => api.openPath(tab.cwd) },
     { label: 'Open terminal here', icon: 'terminal-window', run: () => Panels.show('terminal') },
     { label: 'Copy path', icon: 'copy', run: () => copy(tab.cwd) },
     { label: 'Add folder to workspace…', icon: 'plus', run: () => App.runCommand('add-dir') },
@@ -1033,7 +1058,7 @@ $('#chat-path').onclick = e => {
     ] }] : []),
     ...(tab.addDirs.length ? ['-', { header: 'Workspace folders' }] : []),
     ...tab.addDirs.map(d => ({ label: basename(d), detail: d.replace(App.info.home, '~'), icon: 'folder', more: [
-      { label: 'Open in file manager', icon: 'folder-open', run: () => api.openPath(d) },
+      { label: onPc('Open in file manager'), icon: 'folder-open', run: () => api.openPath(d) },
       { label: 'Remove from workspace', icon: 'x', danger: true, run: async () => {
         tab.addDirs = tab.addDirs.filter(x => x !== d)
         App.tabChanged(tab)
@@ -1183,6 +1208,48 @@ function openSettings(section = 'appearance') {
   Object.assign(editor, { value: settings.editor, placeholder: 'code, cursor, zed, subl, or empty for the system default' })
   editor.onchange = () => saveSettings({ editor: editor.value.trim() })
 
+  const remotePane = () => {
+    const box = el('div', 'stack remote-pane')
+    const draw = s => {
+      const out = []
+      const on = toggle('remoteOn')
+      on.checked = s.enabled
+      on.onchange = async () => { on.disabled = true; draw(await api.remoteSet(on.checked)) }
+      out.push(row('Allow remote access', on, 'Lets your paired phones reach Codedesk through a tunnel. Codedesk itself only listens on this PC.'))
+      out.push(el('div', 'muted small', s.error ? s.error : s.listening ? 'Listening on 127.0.0.1:4870' : 'Off'))
+      if (s.listening) {
+        const t = s.tailscale
+        if (t.installed && t.dnsName && t.serving) {
+          const url = 'https://' + t.dnsName
+          out.push(row('Address for your phone', el('div', 'row', el('code', 'mono', url), iconButton('copy', 'Copy address', e => copy(url, e.currentTarget))), 'Open this on the phone while Tailscale is connected.'))
+        } else if (t.installed) {
+          const note = el('div', 'muted small')
+          out.push(row('Tailscale', button('Share over Tailscale', async e => {
+            e.currentTarget.disabled = true
+            const r = await api.remoteTailscale()
+            if (r.ok) return draw(await api.remoteStatus())
+            note.textContent = `${r.error}. You can run it yourself: ${r.command}. If it asks for permission, run: sudo tailscale set --operator=$USER`
+            e.currentTarget.disabled = false
+          }, 'primary', 'share-network'), 'Publishes this PC to your own Tailscale devices only.'), note)
+        } else out.push(row('Tailscale', el('span', 'muted', 'Not installed'), 'Install Tailscale on this PC and on your phone, sign both in to the same account, then come back here. Steps are in the README under Use it from your phone.'))
+        const code = el('div', 'pair-code mono muted', 'No code yet')
+        const pair = button('Pair a device', async () => {
+          const r = await api.remotePair()
+          code.className = 'pair-code mono'
+          code.replaceChildren(r.code, el('span', 'muted small', ' expires in '), liveTime(r.expires))
+        }, '', 'device-mobile')
+        out.push(row('Pair a phone', pair, 'Opens a code that works once, for 5 minutes. Type it on the phone after opening the address.'), code)
+      }
+      out.push(el('div', 'side-group', 'Paired devices'))
+      out.push(...(s.devices.length ? s.devices.map(d => el('div', 'device-row', el('span', 'device-name', icon('device-mobile'), d.name), el('span', 'muted small', 'Last seen ' + ago(d.lastSeen)),
+        button('Revoke', async () => draw(await api.remoteRevoke(d.id)), 'ghost danger sm'))) : [el('div', 'muted small', 'No devices paired yet.')]))
+      if (s.devices.length > 1) out.push(el('div', 'row', button('Revoke all', async () => draw(await api.remoteRevoke('all')), 'ghost danger', 'prohibit')))
+      box.replaceChildren(...out)
+    }
+    api.remoteStatus().then(draw)
+    return [box]
+  }
+
   const sections = {
     appearance: ['Appearance', 'palette', () => [
       row('Theme', segmented('theme', [['system', 'System', 'circle-half'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], () => { pane.replaceChildren(...sections.appearance[2]()) })),
@@ -1250,6 +1317,7 @@ function openSettings(section = 'appearance') {
         button('Usage and limits', () => openUsage(), '', 'gauge'),
         acct.loggedIn ? button('Sign out', () => App.runCommand('logout'), 'ghost', 'sign-out') : button('Sign in', () => App.runCommand('login'), 'primary', 'sign-in')),
     ]],
+    ...(REMOTE ? {} : { remote: ['Remote', 'device-mobile', remotePane] }),
     advanced: ['Advanced', 'code', () => [
       el('div', 'setting-text', el('div', 'setting-label', 'Custom CSS'), el('div', 'muted small', 'Applied on top of the app styles. Every variable in the theme can be overridden here.')),
       css,
@@ -1302,6 +1370,8 @@ $('#find-input').onkeydown = e => {
 $('#find-next').onclick = () => api.find($('#find-input').value, { findNext: true, forward: true })
 $('#find-prev').onclick = () => api.find($('#find-input').value, { findNext: true, forward: false })
 $('#find-close').onclick = closeFind
+addEventListener('pc-only', () => toast('Add accounts on the PC: Claude sign-in opens a browser there.', 'err'))
+api.on('remote:paired', ({ name }) => toast(`New device paired: ${name}`))
 api.on('shared:changed', patch => {
   Object.assign(settings, patch)
   renderSessions()
