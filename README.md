@@ -124,6 +124,37 @@ npm run dist       # AppImage / deb / rpm / dmg / exe → dist/
 
 <br>
 
+## 📱 Use it from your phone
+
+Control the Codedesk on your PC from anywhere, with the same look: every project, workspace folder, account, conversation and the ones running right now. Nothing opens a port and your phone does not need to be on the same wifi.
+
+Codedesk only listens on `127.0.0.1:4870` on the PC. A tunnel you set up reaches that port with outbound connections only.
+
+**1. Tailscale (recommended).** Only your own devices can reach the PC.
+
+1. Install Tailscale on the PC and the phone and sign in to the same account. On NixOS: `services.tailscale.enable = true;`, then `sudo tailscale up`.
+2. In Codedesk open **Settings → Remote**, turn on **Allow remote access**, then press **Share over Tailscale**. If it asks for permission, run `sudo tailscale set --operator=$USER` once.
+3. The pane shows an address like `https://your-pc.your-tailnet.ts.net`. Open it on the phone while Tailscale is connected.
+4. Press **Pair a device** on the PC and type the code on the phone. The code works once and expires after 5 minutes. After pairing, use **Add to Home Screen** for a full-screen app.
+
+Revoke any phone from the same pane.
+
+**2. Cloudflare Tunnel (nothing to install on the phone).** Run `cloudflared tunnel --url http://127.0.0.1:4870` on the PC and open the `trycloudflare.com` address it prints. This address is public, so the pairing code is the only lock. Put Cloudflare Access with your email in front of a named tunnel to add a second one.
+
+**Keep it reachable.** While remote access is on, closing the last window keeps Codedesk running. `codedesk --background` starts it without a window, for login autostart. With home-manager:
+
+```nix
+systemd.user.services.codedesk = {
+  Unit.Description = "Codedesk";
+  Service.ExecStart = "${pkgs.codedesk}/bin/codedesk --background";
+  Install.WantedBy = [ "graphical-session.target" ];
+};
+```
+
+**Limits.** Claude sign-in opens a browser, so accounts are added on the PC (switching and removing work from the phone). No notifications while the page is closed. Auto-continue after a limit only runs while the page that owns the conversation is open. Dev-server previews on `localhost` don't load on the phone. The PC must be on.
+
+<br>
+
 ## 🧰 What's in it
 
 <details open>
