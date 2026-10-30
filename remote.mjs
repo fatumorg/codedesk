@@ -186,6 +186,7 @@ export function createHub({ now = Date.now, idleMs = 900000 } = {}) {
     list(clientId) {
       return [...sessions.values()].map(e => ({
         key: e.key, sessionId: e.sessionId, cwd: e.info.cwd, model: e.info.model, account: e.info.account, busy: e.busy,
+        waiting: e.pending.size > 0,
         here: [...e.subs].some(s => s.client.id === clientId),
       }))
     },

@@ -84,6 +84,7 @@ const App = {
 
   async openProject(cwd, sessionId, { newTab } = {}) {
     for (const t of this.tabs.values()) if (sessionId && t.sessionId === sessionId) return this.activate(t)
+    const live = sessionId ? (await api.liveSessions()).find(s => s.sessionId === sessionId && !s.here) : null
     let tab = this.active
     const reusable = tab && !tab.busy && (!tab.cwd || !tab.messages.childElementCount)
     if (newTab || !reusable) tab = this.newTab(cwd)
@@ -91,9 +92,20 @@ const App = {
     this.activate(tab)
     rememberProject(cwd)
     this.updateBranch(tab)
-    await tab.open(sessionId)
+    await (live ? tab.attach(live.key, live) : tab.open(sessionId))
     this.refreshSessions()
   },
+
+  live: [],
+  titles: new Map(),
+
+  refreshLive: debounce(async () => {
+    App.live = await api.liveSessions()
+    const missing = [...new Set(App.live.filter(s => s.sessionId && s.cwd && !App.titles.has(s.sessionId)).map(s => s.cwd))]
+    for (const cwd of missing) for (const s of await api.listSessions(cwd)) App.titles.set(s.sessionId, s.customTitle || s.summary || s.firstPrompt)
+    renderRunning()
+    renderSessions()
+  }, 300),
 
   async pickFolder(opts) {
     const dir = await api.pickFolder()
@@ -640,6 +652,24 @@ function renderTodoStrip(tab) {
   strip.hidden = false
 }
 
+function liveDot(row) {
+  return el('span', 'live-dot ' + (row.waiting ? 'wait' : row.busy ? 'busy' : ''))
+}
+
+function renderRunning() {
+  const rows = App.live.filter(s => !s.here && s.sessionId)
+  const box = $('#running')
+  box.hidden = !rows.length
+  box.replaceChildren(el('div', 'side-group', 'Running on this PC'), ...rows.map(s => {
+    const accounts = App.accounts?.length > 1 ? accountName(s.account) : ''
+    const b = el('button', 'running-row ghost', liveDot(s),
+      el('span', 'running-main', el('span', 'running-title', App.titles.get(s.sessionId) || 'New conversation'), el('span', 'running-meta', [basename(s.cwd), accounts].filter(Boolean).join(' · '))),
+      el('span', 'running-state', s.waiting ? 'Waiting for you' : s.busy ? 'Working' : 'Idle'))
+    b.onclick = () => App.openProject(s.cwd, s.sessionId, { newTab: true })
+    return b
+  }))
+}
+
 function renderSessions() {
   const tab = App.active
   const q = $('#session-search').value.toLowerCase()
@@ -656,7 +686,9 @@ function renderSessions() {
     const g = pinned.has(s.sessionId) ? 'Pinned' : group(s.lastModified)
     if (g !== last) { out.push(el('div', 'side-group', g)); last = g }
     const title = s.customTitle || s.summary || s.firstPrompt || 'Untitled'
+    const running = App.live.find(r => r.sessionId === s.sessionId && (r.busy || r.waiting))
     const item = el('div', 'session' + (s.sessionId === tab.sessionId ? ' active' : ''),
+      running ? liveDot(running) : null,
       pinned.has(s.sessionId) ? icon('push-pin', 'pin') : null,
       el('span', 'session-title', title),
       iconButton('dots-three', 'More', e => { e.stopPropagation(); sessionMenu(e.currentTarget, s, title) }, 'sm session-more'))
@@ -1278,34 +1310,36 @@ api.on('shared:changed', patch => {
 })
 api.on('found', r => { if (r.finalUpdate) $('#find-count').textContent = r.matches ? `${r.activeMatchOrdinal}/${r.matches}` : 'No results' })
 
-api.on('claude:message', ({ tab, msg }) => {
-  const t = App.tabs.get(tab)
+const toTab = (id, fn, msg) => {
+  const t = App.tabs.get(id)
   if (!t) return
+  if (t.attachQueue) t.attachQueue.push({ run: () => fn(t), uuid: msg?.uuid, type: msg?.type })
+  else fn(t)
+}
+api.on('claude:message', ({ tab, msg }) => toTab(tab, t => {
   if (msg.type === 'assistant' && t.liveText && !(msg.message?.content || []).some(b => b.type === 'text' && b.text.trim())) {
     cancelAnimationFrame(t.liveText.raf)
     t.liveText.node.closest('.msg')?.remove()
     t.liveText = null
   }
   t.handle(msg)
-})
-api.on('claude:permission', d => App.tabs.get(d.tab)?.permission(d))
-api.on('claude:meta', ({ tab, commands, models, agents }) => {
-  const t = App.tabs.get(tab)
-  if (!t) return
+}, msg))
+api.on('claude:permission', d => toTab(d.tab, t => t.permission(d)))
+api.on('claude:permission-done', ({ tab, id }) => toTab(tab, t => t.answeredElsewhere(id)))
+api.on('claude:meta', ({ tab, commands, models, agents }) => toTab(tab, t => {
   Object.assign(t.meta, { commands, models, agents })
   if (models?.some(m => !/^gemini/i.test(m.value))) localStorage.setItem('models', JSON.stringify(models))
   Panels.refresh('agents')
   App.tabChanged(t)
-})
+}))
 api.on('claude:stderr', ({ tab, line }) => { const t = App.tabs.get(tab); if (t) t.stderr = [...t.stderr, line].slice(-40) })
-api.on('claude:error', ({ tab, error }) => {
-  const t = App.tabs.get(tab)
-  if (!t) return
+api.on('claude:error', ({ tab, error }) => toTab(tab, t => {
   t.live = false
   t.setBusy(false)
   t.add(el('div', 'notice err', icon('warning'), el('pre', '', error + (t.stderr.length ? '\n\n' + t.stderr.join('') : ''))))
-})
-api.on('claude:ended', ({ tab }) => { const t = App.tabs.get(tab); if (t) { t.live = false; t.setBusy(false) } })
+}))
+api.on('claude:ended', ({ tab }) => toTab(tab, t => { t.live = false; t.setBusy(false) }))
+api.on('sessions:changed', () => App.refreshLive())
 api.on('menu', ch => ({
   newTab: () => App.newTab(null), openFolder: () => App.pickFolder(), closeTab: () => App.closeTab(),
   export: () => App.active.exportMarkdown(), settings: openSettings, palette: openPalette, find: openFind,
@@ -1407,6 +1441,7 @@ $('#main').addEventListener('mousedown', e => { if (e.target === e.currentTarget
   if (settings.panel) Panels.render()
   if (initial) await App.openProject(initial)
   App.refreshUsage(null)
+  App.refreshLive()
   for (const [id, r] of Object.entries(Tab.resumes())) {
     await App.openProject(r.cwd, id)
     ;[...App.tabs.values()].find(t => t.sessionId === id)?.scheduleResume(r.at, r.force, r.account)

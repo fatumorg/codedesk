@@ -178,10 +178,15 @@ test('dropping a client keeps its session as an orphan', () => {
   assert.equal(row.here, false)
 })
 
-test('list marks the sessions this client is watching', () => {
+test('list marks the sessions this client is watching and those waiting for an answer', () => {
   const { hub, a, stop } = rig()
-  hub.add('k', a, 't1', stop)
+  const e = hub.add('k', a, 't1', stop)
   assert.equal(hub.list('a')[0].here, true)
+  assert.equal(hub.list('a')[0].waiting, false)
+  e.emit('claude:permission', { id: 'p1' })
+  assert.equal(hub.list('z')[0].waiting, true)
+  e.answered('p1', 'a')
+  assert.equal(hub.list('z')[0].waiting, false)
 })
 
 test('sweep stops idle orphans only', () => {

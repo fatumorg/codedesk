@@ -127,6 +127,16 @@ body.with-panel #panel-resize { display: block; }
 .session:hover { background: var(--hover); color: var(--fg); }
 .session.active { background: var(--active); color: var(--fg); font-weight: 500; }
 .session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#running { display: grid; padding-bottom: 6px; }
+.running-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; padding: calc(7px * var(--dk)) 9px; border: 0; text-align: left; color: var(--fg-2); }
+.running-main { display: grid; min-width: 0; }
+.running-title, .running-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.running-title { color: var(--fg); font-weight: 500; }
+.running-meta, .running-state { font-size: 12px; color: var(--muted); }
+.running-row .live-dot.wait ~ .running-state { color: var(--yellow); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
+.live-dot.busy { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.live-dot.wait { background: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-bg); }
 .session-more { opacity: 0; }
 .session:hover .session-more, .session.active .session-more { opacity: 1; }
 .side-empty { color: var(--muted); padding: 14px 8px; font-size: 13px; }

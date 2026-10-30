@@ -56,6 +56,8 @@ class Tab {
     this.attachments = []
     this.liveText = null
     this.permissions = 0
+    this.permCards = new Map()
+    this.attachQueue = null
     this.view = el('div', 'view')
     this.messages = el('div', 'messages')
     this.view.append(this.messages)
@@ -65,7 +67,9 @@ class Tab {
 
   get name() { return this.cwd ? basename(this.cwd) : 'New tab' }
 
-  async open(sessionId, { history = true } = {}) {
+  attach(key, info) { return this.open(info.sessionId, { attach: key }) }
+
+  async open(sessionId, { history = true, attach = null } = {}) {
     await api.stop(this.id)
     if (sessionId !== this.sessionId) this.cancelResume(true)
     this.live = false
@@ -73,10 +77,18 @@ class Tab {
     this.messages.replaceChildren()
     this.tools.clear(); this.changes.clear(); this.tasks.clear(); this.todos = []
     this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0; this.routed = false
+    this.permCards.clear()
     this.accountPick = null
     this.title = 'New conversation'
     this.setBusy(false)
     if (!sessionId) Object.assign(this, { model: settings.defaultModel, effort: settings.defaultEffort, ultracode: settings.defaultUltracode, saver: settings.saverOn })
+    let liveInfo = null
+    if (attach) {
+      this.attachQueue = []
+      liveInfo = await api.attach(this.id, attach)
+      if (!liveInfo) { this.attachQueue = null; if (sessionId) this.live = false }
+    }
+    let msgs = []
     if (sessionId && history) {
       const info = (await api.listSessions(this.cwd)).find(s => s.sessionId === sessionId)
       const p = settings.sessionPrefs[sessionId]
@@ -84,11 +96,19 @@ class Tab {
       this.effort = p?.effort || settings.defaultEffort
       this.ultracode = p?.ultracode ?? settings.defaultUltracode
       this.saver = false
-      const msgs = await api.history(sessionId, this.cwd)
+      msgs = await api.history(sessionId, this.cwd)
       this.loadingHistory = true
       for (const m of msgs) this.handle({ ...m, history: true })
       this.loadingHistory = false
       if (info) this.title = info.customTitle || info.summary || info.firstPrompt || this.title
+    }
+    if (liveInfo) {
+      Object.assign(this, { live: true, startedAccount: liveInfo.account ?? this.account, lastActive: Date.now(), model: liveInfo.model || this.model, mode: liveInfo.permissionMode || this.mode })
+      const seen = new Set(msgs.map(m => m.uuid))
+      const queued = this.attachQueue
+      this.attachQueue = null
+      this.setBusy(liveInfo.busy)
+      for (const q of queued) if (!(q.uuid && seen.has(q.uuid) && (q.type === 'assistant' || q.type === 'user'))) q.run()
     }
     this.renderEmpty()
     App.tabChanged(this)
@@ -779,14 +799,16 @@ class Tab {
     App.tabChanged(this)
     notify(`${this.name}: Claude needs your input`, p.title || `Allow ${p.toolName}?`)
     const card = el('div', 'card')
+    this.permCards.set(p.id, card)
     const done = result => {
+      this.permCards.delete(p.id)
       api.permit(this.id, p.id, result)
       const ok = result.behavior === 'allow'
       const what = p.toolName === 'AskUserQuestion' ? (ok ? 'Answered' : 'Skipped question')
         : p.toolName === 'ExitPlanMode' ? (ok ? 'Plan approved' : 'Kept planning')
         : `${ok ? (result.updatedPermissions ? 'Always allowed' : 'Allowed') : 'Denied'} ${p.toolName}`
       card.className = 'card done ' + (ok ? 'allowed' : 'denied')
-      card.replaceChildren(icon(ok ? 'check' : 'x'), el('span', '', what), !ok && result.message !== 'User denied this action' ? el('span', 'muted', `: ${result.message}`) : null)
+      card.replaceChildren(...[icon(ok ? 'check' : 'x'), el('span', '', what), !ok && result.message !== 'User denied this action' ? el('span', 'muted', `: ${result.message}`) : null].filter(Boolean))
       this.permissions--
       App.tabChanged(this)
     }
@@ -853,6 +875,16 @@ class Tab {
     this.add(card)
     this.scroll(true)
     setTimeout(() => (card.querySelector('button.primary') || card).focus({ preventScroll: true }), 50)
+  }
+
+  answeredElsewhere(id) {
+    const card = this.permCards.get(id)
+    if (!card) return
+    this.permCards.delete(id)
+    card.className = 'card done'
+    card.replaceChildren(icon('devices'), el('span', '', 'Answered on another device'))
+    this.permissions--
+    App.tabChanged(this)
   }
 
   loginPrompt() {
