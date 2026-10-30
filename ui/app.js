@@ -92,6 +92,7 @@ const App = {
     this.activate(tab)
     rememberProject(cwd)
     this.updateBranch(tab)
+    if (innerWidth <= 1100 && settings.sidebar) saveSettings({ sidebar: false })
     await (live ? tab.attach(live.key, live) : tab.open(sessionId))
     this.refreshSessions()
   },
