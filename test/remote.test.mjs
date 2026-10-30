@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createDevices, createHub, createOutbox, createRemoteServer, createShared, deviceName, parseTailscale, pickShared } from '../remote.mjs'
@@ -509,4 +509,43 @@ test('tailscale status is read from the two json outputs', () => {
   assert.deepEqual(parseTailscale(status, serve), { dnsName: 'box.tail1234.ts.net', serving: true })
   assert.deepEqual(parseTailscale(status, '{}'), { dnsName: 'box.tail1234.ts.net', serving: false })
   assert.deepEqual(parseTailscale('not json', null), { dnsName: undefined, serving: false })
+})
+
+test('a failed write does not break later writes', async () => {
+  const dir = tmp()
+  const file = path.join(dir, 'remote.json')
+  mkdirSync(path.join(file, 'blocker'), { recursive: true })
+  const d = createDevices(file)
+  await d.load()
+  await assert.rejects(d.setEnabled(true))
+  rmSync(file, { recursive: true })
+  await d.setEnabled(true)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).enabled, true)
+  const sfile = path.join(dir, 'shared.json')
+  mkdirSync(path.join(sfile, 'blocker'), { recursive: true })
+  const sh = createShared(sfile)
+  await sh.load()
+  await assert.rejects(sh.save({ pinned: ['a'] }))
+  rmSync(sfile, { recursive: true })
+  await sh.save({ pinned: ['b'] })
+  assert.deepEqual(JSON.parse(readFileSync(sfile, 'utf8')), { pinned: ['b'] })
+})
+
+test('pairing code accepts the look-alike letters Crockford maps: O is 0, I and L are 1', async () => {
+  const { d } = await devices()
+  let code
+  do code = d.startPairing(); while (!/[01]/.test(code))
+  const typed = code.replace(/0/g, 'O').replace(/1/g, 'l')
+  assert.ok(await d.pair(typed, 'x'))
+})
+
+test('cross-site browser requests are refused, same-origin ones pass even if a tunnel rewrote Host', async t => {
+  const { login, base } = await boot(t)
+  const { cookie } = await login()
+  const post = headers => fetch(`${base}/api/echo`, { method: 'POST', body: '[]', headers: { cookie, 'x-codedesk': '1', 'x-codedesk-page': 'pg123456', 'content-type': 'application/json', ...headers } })
+  assert.equal((await post({ origin: base, 'sec-fetch-site': 'cross-site' })).status, 403)
+  assert.equal((await post({ origin: base, 'sec-fetch-site': 'same-site' })).status, 403)
+  assert.equal((await post({ origin: 'https://pc.example.net', 'sec-fetch-site': 'same-origin' })).status, 200)
+  assert.equal((await post({ origin: 'https://pc.example.net', 'x-forwarded-host': 'pc.example.net' })).status, 200)
+  assert.equal((await post({ origin: 'https://evil.test' })).status, 403)
 })

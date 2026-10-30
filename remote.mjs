@@ -10,7 +10,7 @@ const CODE_TTL = 5 * 60000
 const MAX_TRIES = 5
 const MAX_ATTEMPTS = 10
 const sha = s => createHash('sha256').update(s).digest('hex')
-const normalize = s => String(s).toUpperCase().replace(/[-\s]/g, '')
+const normalize = s => String(s).toUpperCase().replace(/[-\s]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1')
 
 export function deviceName(ua = '') {
   const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Device'
@@ -26,7 +26,7 @@ export function createDevices(file, now = Date.now) {
   let queue = Promise.resolve()
   const revokeListeners = []
 
-  const persist = () => (queue = queue.then(async () => {
+  const persist = () => (queue = queue.catch(() => {}).then(async () => {
     await fs.mkdir(path.dirname(file), { recursive: true })
     await writeJson(file, { enabled, devices })
   }))
@@ -216,7 +216,7 @@ export function createShared(file) {
     save(patch) {
       data = { ...(data || {}), ...pickShared(patch) }
       const snapshot = data
-      queue = queue.then(async () => {
+      queue = queue.catch(() => {}).then(async () => {
         await fs.mkdir(path.dirname(file), { recursive: true })
         await writeJson(file, snapshot)
       })
@@ -271,7 +271,9 @@ export function createRemoteServer({ appDir, devices, hub, shared, info, call, a
   }
   const json = (res, status, obj) => reply(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
   const sameOrigin = req => {
-    try { return new URL(req.headers.origin).host === req.headers.host } catch { return false }
+    const site = req.headers['sec-fetch-site']
+    if (site) return site === 'same-origin'
+    try { const host = new URL(req.headers.origin).host; return host === req.headers.host || host === req.headers['x-forwarded-host'] } catch { return false }
   }
   const readBody = (req, limit) => new Promise(resolve => {
     const chunks = []

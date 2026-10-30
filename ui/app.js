@@ -1324,7 +1324,7 @@ function openSettings(section = 'appearance') {
       css,
       el('div', 'row', button('Reset all settings', async () => {
         if (!await confirmDialog('Reset settings?', 'Appearance and defaults go back to how they were on first launch.', 'Reset', true)) return
-        localStorage.removeItem('settings'); Object.assign(settings, DEFAULTS); applySettings(); m.close(); openSettings()
+        localStorage.removeItem('settings'); Object.assign(settings, DEFAULTS, { projects: settings.projects }); applySettings(); m.close(); openSettings()
       }, 'ghost danger', 'arrow-counter-clockwise')),
     ]],
   }
