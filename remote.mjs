@@ -247,7 +247,7 @@ export function createOutbox({ max = 5000, maxBytes = 8 << 20 } = {}) {
 
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', json: 'application/json', webmanifest: 'application/manifest+json', pdf: 'application/pdf', txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8' }
 const typeOf = f => TYPES[path.extname(f).slice(1).toLowerCase()] || 'application/octet-stream'
-const PUBLIC = new Set(['/ui/pair.html', '/ui/pair.js', '/ui/style.css', '/ui/manifest.webmanifest', '/build/icon.svg', '/build/icon.png'])
+const PUBLIC = new Set(['/ui/pair.html', '/ui/pair.js', '/ui/style.css', '/ui/manifest.webmanifest', '/build/icon.svg', '/build/icon.png', '/build/icon-touch.png'])
 const PAGE_RE = /^[\w-]{8,64}$/
 const PAGE_TTL = 24 * 3600000
 
@@ -385,7 +385,7 @@ export function createRemoteServer({ appDir, devices, hub, shared, info, call, a
   async function index(res) {
     const html = await fs.readFile(path.join(appDir, 'ui/index.html'), 'utf8')
     const out = html
-      .replace('</head>', '  <link rel="manifest" href="/ui/manifest.webmanifest">\n</head>')
+      .replace('</head>', '  <link rel="manifest" href="/ui/manifest.webmanifest">\n  <link rel="apple-touch-icon" href="/build/icon-touch.png">\n  <meta name="apple-mobile-web-app-title" content="Codedesk">\n</head>')
       .replace('<script', '<script src="/boot.js"></script>\n  <script src="/ui/remote.js"></script>\n  <script')
     reply(res, 200, out, { 'Content-Type': TYPES.html, 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'none'" })
   }

@@ -839,7 +839,7 @@ function renderUsageMeter() {
   const pct = Math.round(w.utilization)
   b.className = 'ghost' + (pct >= 100 ? ' full' : pct >= 75 ? ' warn' : '')
   b.replaceChildren(el('span', 'mini-bar', Object.assign(el('span'), { style: `width:${Math.min(pct, 100)}%` })), el('span', '', `${pct}% session`),
-    w.resets_at ? el('span', 'muted', '· resets in ', liveTime(Date.parse(w.resets_at))) : null)
+    ...(w.resets_at ? [el('span', 'muted', '· resets in ', liveTime(Date.parse(w.resets_at)))] : []))
   b.title = `Session limit ${pct}% used` + (w.resets_at ? ` · resets ${clock(Date.parse(w.resets_at))}` : '')
 }
 

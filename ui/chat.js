@@ -203,6 +203,7 @@ class Tab {
   }
 
   renderEmpty() {
+    this.view.querySelector('.empty')?.remove()
     if (this.messages.childElementCount || !this.cwd) return
     const ideas = [
       ['Explain this codebase', 'Give me an overview of this codebase: what it does, how it is structured, and where the main entry points are.'],
@@ -857,7 +858,7 @@ class Tab {
       card.append(el('div', 'card-title', icon(TOOL_ICONS[p.toolName] || 'shield-check'), p.title || `Allow ${p.toolName}?`))
       if (p.decisionReason) card.append(el('div', 'muted small', p.decisionReason))
       const i = p.input || {}
-      if (p.toolName === 'Bash') card.append(el('pre', 'term-cmd', el('span', 'prompt', '$ '), i.command), i.description ? el('div', 'muted small', i.description) : null)
+      if (p.toolName === 'Bash') card.append(el('pre', 'term-cmd', el('span', 'prompt', '$ '), i.command), ...(i.description ? [el('div', 'muted small', i.description)] : []))
       else if (p.toolName === 'Edit' || p.toolName === 'MultiEdit') card.append(el('div', 'file-label', App.relPath(this, i.file_path)), diffView((i.edits || [i]).flatMap(e => lineDiff(e.old_string || '', e.new_string || ''))))
       else if (p.toolName === 'Write') { const pre = el('pre', 'code-view'); pre.innerHTML = highlightFile(i.content || '', i.file_path || ''); card.append(el('div', 'file-label', App.relPath(this, i.file_path || '')), pre) }
       else card.append(el('pre', 'json', JSON.stringify(i, null, 2)))

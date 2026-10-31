@@ -6,5 +6,8 @@
   "display": "standalone",
   "background_color": "#1c1b19",
   "theme_color": "#1c1b19",
-  "icons": [{ "src": "/build/icon.png", "sizes": "512x512", "type": "image/png" }]
+  "icons": [
+    { "src": "/build/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/build/icon-touch.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

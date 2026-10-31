@@ -327,7 +327,8 @@ details.tool { border: 1px solid var(--border); border-radius: calc(10px * var(-
 #input::placeholder { color: var(--muted); }
 .composer-bar { display: flex; align-items: center; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 .composer-bar .chip span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-@container (max-width: 600px) { #mode-chip span, #account-chip span, #fast-chip span, #effort-chip span { display: none; } .composer-bar { flex-wrap: nowrap; } }
+@container (max-width: 600px) { #mode-chip span, #account-chip span, #fast-chip span, #effort-chip span { display: none; } .composer-bar { flex-wrap: nowrap; } .composer-bar > * { flex-shrink: 0; } #model-chip { flex-shrink: 1; min-width: 40px; overflow: hidden; } #model-chip span { min-width: 0; } }
+@container (max-width: 420px) { #mention, #slash, #model-chip i { display: none; } }
 .send { width: 32px; height: 32px; padding: 0; justify-content: center; border-radius: calc(9px * var(--rk)); font-size: 16px; }
 .send.stop { background: var(--primary); color: var(--primary-fg); }
 #attachments { display: flex; flex-wrap: wrap; gap: 6px; }
