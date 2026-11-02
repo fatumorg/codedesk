@@ -47,7 +47,7 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 const DEFAULTS = {
   theme: 'system', palette: 'warm', accent: 'terracotta', accentCustom: '#c96442', uiFont: 'geist', proseFont: 'serif', monoFont: 'geist',
   density: 'comfortable', radius: 'soft', fontSize: 14, chatWidth: 780, motion: true, customCss: '',
-  showThinking: true, expandTools: false, sounds: false, enterSends: true, notifications: true, autoContinue: true, continuePrompt: '', continuePrompts: {}, continueFirst: {}, account: 'system', projectAccounts: {}, sessionAccounts: {}, sessionPrefs: {}, autoSwitchAccount: true, localFallback: true, localFallbackModel: '', localMode: 'host', localSource: 'ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf', localCtx: '', localArgs: '', localUrl: 'http://127.0.0.1:11434', localKey: '', saverModel: '', subagentModel: '', allowSubagents: true, compactAt: '', maxTurns: '', saverOn: false, saverQuickWords: 'explain, what is, what does, list, where is, rename, typo, format, summarize, translate', saverQuickModel: 'haiku', saverHeavyWords: 'design, architect, debug, refactor, migrate, implement, plan, security, review, investigate, fix', saverHeavyModel: 'opus', saverOtherModel: 'sonnet', editor: 'code',
+  showThinking: true, expandTools: false, sounds: false, enterSends: true, notifications: true, autoContinue: true, continuePrompt: '', continuePrompts: {}, continueFirst: {}, account: 'system', projectAccounts: {}, sessionAccounts: {}, sessionPrefs: {}, autoSwitchAccount: true, localFallback: true, localFallbackModel: '', localMode: 'host', localSource: 'ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf', localCtx: '', localArgs: '', localUrl: 'http://127.0.0.1:11434', localKey: '', localNames: {}, saverModel: '', subagentModel: '', allowSubagents: true, compactAt: '', maxTurns: '', saverOn: false, saverQuickWords: 'explain, what is, what does, list, where is, rename, typo, format, summarize, translate', saverQuickModel: 'haiku', saverHeavyWords: 'design, architect, debug, refactor, migrate, implement, plan, security, review, investigate, fix', saverHeavyModel: 'opus', saverOtherModel: 'sonnet', editor: 'code',
   defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium', defaultUltracode: false,
   panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], workspaces: {}, projects: [], v: 3,
 }
@@ -83,6 +83,10 @@ const settings = (() => {
 if (!api.shared || upgraded) api.saveShared(pickShared(settings)).catch(() => {})
 if (upgraded) try { localStorage.setItem('settings', JSON.stringify(settings)) } catch {}
 const engineOf = m => /^gemini/i.test(m || '') ? 'gemini' : /^local:/.test(m || '') ? 'local' : 'claude'
+const localModels = () => (App.local?.models || []).map(m => {
+  const o = settings.localNames[m.value] || {}
+  return { ...m, displayName: o.name || m.displayName, description: o.description || m.description }
+})
 const localConfig = () => ({ mode: settings.localMode, source: settings.localSource, ctx: +settings.localCtx || 0, args: settings.localArgs, url: settings.localUrl, key: settings.localKey })
 function saveSettings(patch) {
   Object.assign(settings, patch)

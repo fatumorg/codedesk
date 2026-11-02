@@ -389,7 +389,7 @@ async function startSession(client, tab, opts) {
   })()
 
   Promise.all([s.q.supportedCommands(), s.q.supportedModels(), s.q.supportedAgents().catch(() => []), getAgyModels()])
-    .then(([commands, models, agents, gm]) => send('claude:meta', { commands, models: [...gm, ...(models || [])], agents }))
+    .then(([commands, models, agents, gm]) => send('claude:meta', { commands, agents, ...(!local && { models: [...gm, ...(models || [])] }) }))
     .catch(() => send('claude:meta', { commands: [], models: [], agents: [] }))
   return key
 }

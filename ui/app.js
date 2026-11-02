@@ -474,7 +474,7 @@ const MORE_MODELS = [
 function mainModels(tab) {
   const raw = tab?.meta.models.length ? tab.meta.models : FALLBACK_MODELS
   const seen = new Set()
-  const list = [...(App.local?.models || []), ...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !MORE_MODELS.some(([id]) => id === m.value) && !seen.has(m.value) && seen.add(m.value))
+  const list = [...localModels(), ...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !MORE_MODELS.some(([id]) => id === m.value) && !seen.has(m.value) && seen.add(m.value))
   return list.map(m => {
     const [name, ...rest] = (m.description || '').split(' · ')
     return { ...m, label: m.displayName || name || m.value, detail: rest.length ? rest.join(' · ') : m.displayName ? m.description || '' : '' }
@@ -1278,6 +1278,18 @@ function openSettings(section = 'appearance') {
       i.onchange = () => { saveSettings({ [key]: i.type === 'number' ? +i.value : i.value.trim() }); refresh() }
       return i
     }
+    const naming = (m, key, placeholder) => {
+      const i = el('input', 'field')
+      Object.assign(i, { value: settings.localNames[m.value]?.[key] || '', placeholder, spellcheck: false })
+      i.setAttribute('aria-label', `${key === 'name' ? 'Name' : 'Description'} for ${m.displayName}`)
+      i.onchange = () => {
+        const { [m.value]: cur = {}, ...rest } = settings.localNames
+        const next = { ...cur, [key]: i.value.trim() }
+        saveSettings({ localNames: next.name || next.description ? { ...rest, [m.value]: next } : rest })
+        App.tabChanged(App.active)
+      }
+      return i
+    }
     const presets = el('datalist', '', ...LOCAL_PRESETS.map(([v, l]) => Object.assign(el('option', '', l), { value: v })))
     presets.id = 'local-presets'
     const source = field('localSource', 'user/repo/file.gguf, user/repo:QUANT or /path/to/model.gguf')
@@ -1285,7 +1297,7 @@ function openSettings(section = 'appearance') {
     const draw = st => {
       App.local = st
       const host = settings.localMode !== 'connect'
-      const models = (st.models || []).map(m => [m.value, m.displayName || m.value])
+      const models = localModels().map(m => [m.value, m.displayName || m.value])
       box.replaceChildren(
         row('Where the model runs', segmented('localMode', [['host', 'Host here', 'hard-drives'], ['connect', 'Connect to a server', 'plugs']], refresh),
           host ? 'Codedesk starts llama.cpp for you when a conversation uses the local model.' : 'Any server that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.'),
@@ -1303,6 +1315,7 @@ function openSettings(section = 'appearance') {
           row('API key', field('localKey', 'Leave empty if the server has none', { type: 'password' })),
           row('Models found', el('span', 'mono', models.map(m => m[1]).join(', ') || 'None, check the address')),
         ]),
+        ...(st.models || []).map(m => row(`Name for ${m.displayName}`, el('div', 'stack', naming(m, 'name', m.displayName), naming(m, 'description', m.description)), 'Shown in the model menu. Leave empty to use the default.')),
         row('Use when every Claude account is at its limit', toggle('localFallback'), 'Tries your other accounts first, then moves the conversation to this model and continues.'),
         ...(models.length > 1 ? [row('Model to switch to', select('localFallbackModel', [['', 'First available'], ...models]))] : []),
         el('div', 'row wrap',
@@ -1469,7 +1482,7 @@ api.on('claude:message', ({ tab, msg }) => toTab(tab, t => {
 api.on('claude:permission', d => toTab(d.tab, t => t.permission(d)))
 api.on('claude:permission-done', ({ tab, id }) => toTab(tab, t => t.answeredElsewhere(id)))
 api.on('claude:meta', ({ tab, commands, models, agents }) => toTab(tab, t => {
-  Object.assign(t.meta, { commands, models, agents })
+  Object.assign(t.meta, { commands, agents, ...(models && { models }) })
   if (models?.some(m => !/^gemini/i.test(m.value))) localStorage.setItem('models', JSON.stringify(models))
   Panels.refresh('agents')
   App.tabChanged(t)
