@@ -36,6 +36,7 @@
       "agy.mjs",
       "accounts.mjs",
       "remote.mjs",
+      "local.mjs",
       "preload.cjs",
       "ui/**",
       "build/icon*",

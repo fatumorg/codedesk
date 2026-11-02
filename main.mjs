@@ -10,6 +10,9 @@ import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
 import { createDevices, createHub, createRemoteServer, createShared, parseTailscale, pickShared } from './remote.mjs'
+import { forLlama, isLocal, LOCAL_PORT, localEnv, localId, modelSource, parseModels, serverArgs } from './local.mjs'
+import http from 'node:http'
+import { Readable } from 'node:stream'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appUrl = pathToFileURL(path.join(here, 'ui/index.html')).href
@@ -51,6 +54,7 @@ function findBin(name) {
 }
 const claudePath = findBin('claude')
 const agyPath = findBin('agy')
+const llamaPath = findBin('llama-server')
 
 const run = (cmd, args, opts = {}) => new Promise(resolve =>
   execFile(cmd, args, { maxBuffer: 64 << 20, timeout: 120000, ...opts }, (err, stdout, stderr) =>
@@ -62,6 +66,115 @@ const route = (client, tab) => {
   return entry && sessions.get(entry.key)
 }
 const isGemini = m => /^gemini/i.test(m || '')
+const engine = m => isGemini(m) ? 'gemini' : isLocal(m) ? 'local' : 'claude'
+
+const localKey = crypto.randomUUID()
+const localLog = []
+let llama = null
+let llamaDevices
+const logLocal = line => { localLog.push(line); if (localLog.length > 40) localLog.shift() }
+const getLlamaDevices = () => llamaDevices ||= llamaPath
+  ? run(llamaPath, ['--list-devices'], { timeout: 20000 }).then(r => (r.stdout + r.stderr).split('\n').map(l => l.trim()).filter(l => /^\w+\d*: /.test(l)))
+  : Promise.resolve([])
+
+async function waitHealthy(child) {
+  while (child.exitCode === null && !child.killed) {
+    const ok = await fetch(`http://127.0.0.1:${LOCAL_PORT}/v1/models`, { headers: { authorization: `Bearer ${localKey}` } }).then(r => r.ok, () => false)
+    if (ok) return
+    await new Promise(r => setTimeout(r, 1000))
+  }
+  throw new Error('Local model server stopped: ' + (localLog.slice(-3).join(' ') || `exit code ${child.exitCode}`))
+}
+
+function stopLlama() {
+  llama?.child?.kill()
+  llama = null
+}
+
+function ensureLlama(cfg) {
+  if (!llamaPath) throw new Error('llama-server (llama.cpp) is not installed')
+  const args = serverArgs(cfg, { key: localKey })
+  const sig = JSON.stringify(args)
+  if (llama?.sig === sig) return llama.ready
+  const prev = llama?.child
+  stopLlama()
+  const me = llama = { child: null, sig, alias: modelSource(cfg.source).alias, ready: null }
+  me.ready = (async () => {
+    if (prev && prev.exitCode === null) await new Promise(r => prev.once('exit', r))
+    if (llama !== me) throw new Error('Local model server was stopped')
+    localLog.length = 0
+    const child = me.child = spawn(llamaPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    for (const s of [child.stdout, child.stderr]) createInterface({ input: s }).on('line', logLocal)
+    child.on('error', e => logLocal(String(e.message || e)))
+    child.on('exit', () => { if (llama === me) llama = null; hub.broadcast('local:changed', {}) })
+    await waitHealthy(child)
+    const props = await fetch(`http://127.0.0.1:${LOCAL_PORT}/props`, { headers: { authorization: `Bearer ${localKey}` } }).then(r => r.json(), () => null)
+    me.ctx = props?.default_generation_settings?.n_ctx
+    hub.broadcast('local:changed', {})
+  })()
+  me.ready.catch(() => {})
+  hub.broadcast('local:changed', {})
+  return me.ready
+}
+
+async function localTarget(cfg = {}) {
+  if (cfg.mode !== 'connect') {
+    await ensureLlama(cfg)
+    return { url: `http://127.0.0.1:${LOCAL_PORT}`, key: localKey, ctx: llama?.ctx }
+  }
+  if (!/^https?:\/\//.test(cfg.url || '')) throw new Error('Set the local model server address in Settings → Local model')
+  return { url: cfg.url, key: cfg.key, ctx: cfg.ctx }
+}
+
+let proxy, proxyTarget
+async function viaProxy(target) {
+  proxyTarget = target.url.replace(/\/+$/, '')
+  proxy ||= new Promise((resolve, reject) => {
+    const srv = http.createServer(async (req, res) => {
+      try {
+        const chunks = []
+        for await (const c of req) chunks.push(c)
+        let body = Buffer.concat(chunks)
+        if (req.method === 'POST' && /\/v1\/messages/.test(req.url)) {
+          const j = JSON.parse(body)
+          j.messages = forLlama(j.messages)
+          body = Buffer.from(JSON.stringify(j))
+        }
+        const headers = Object.fromEntries(Object.entries(req.headers).filter(([k]) => !['host', 'content-length', 'connection', 'accept-encoding'].includes(k)))
+        const up = await fetch(proxyTarget + req.url, { method: req.method, headers, body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body })
+        res.writeHead(up.status, Object.fromEntries([...up.headers].filter(([k]) => !['content-length', 'content-encoding', 'transfer-encoding', 'connection'].includes(k))))
+        if (up.body) Readable.fromWeb(up.body).on('error', () => res.destroy()).pipe(res)
+        else res.end()
+      } catch (e) {
+        if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `Local model server: ${e.message}` } }))
+      }
+    })
+    srv.on('error', reject)
+    srv.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${srv.address().port}`))
+  }).catch(e => { proxy = null; throw e })
+  return { ...target, url: await proxy }
+}
+
+async function localModels(cfg = {}) {
+  if (cfg.mode !== 'connect') {
+    try { return parseModels({ data: [{ id: modelSource(cfg.source).alias }] }, 'Hosted by Codedesk') } catch { return [] }
+  }
+  if (!/^https?:\/\//.test(cfg.url || '')) return []
+  const r = await fetch(cfg.url.replace(/\/+$/, '') + '/v1/models', { headers: cfg.key ? { authorization: `Bearer ${cfg.key}` } : {}, signal: AbortSignal.timeout(4000) }).catch(() => null)
+  return r?.ok ? parseModels(await r.json().catch(() => null), 'Local') : []
+}
+
+handle('localStatus', async (_, cfg) => {
+  const ready = llama ? await Promise.race([llama.ready.then(() => true, () => false), new Promise(r => setTimeout(r, 50, false))]) : false
+  return {
+    installed: !!llamaPath, path: llamaPath || null, devices: await getLlamaDevices(),
+    state: llama ? (ready ? 'ready' : 'loading') : 'stopped', alias: llama?.alias || null, ctx: llama?.ctx || null,
+    log: localLog.slice(-8), models: await localModels(cfg),
+  }
+})
+handle('localStart', async (_, cfg) => { await ensureLlama(cfg) })
+handle('localStop', () => stopLlama())
 
 const storePath = () => path.join(app.getPath('userData'), 'agy-sessions.json')
 async function readGeminiStore() {
@@ -214,11 +327,13 @@ async function startSession(client, tab, opts) {
   const { cwd, resume, model, permissionMode, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
   if (!existsSync(cwd)) return client.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
   if (isGemini(model)) return startGeminiSession(client, tab, opts)
-  const accountEnv = await accounts().env(opts.account)
+  const local = isLocal(model)
+  const target = local && await viaProxy(await localTarget(opts.local))
+  const accountEnv = local ? localEnv(target, localId(model), target.ctx) : await accounts().env(opts.account)
   restartTab(client, tab)
   const key = crypto.randomUUID()
   const entry = hub.add(key, client, tab, () => stopSession(key))
-  entry.info = { cwd, model, permissionMode: permissionMode || 'default', account: opts.account, effort }
+  entry.info = { cwd, model, permissionMode: permissionMode || 'default', account: opts.account, effort, local: opts.local }
   if (resume && !fork) { entry.sessionId = resume; hub.broadcast('sessions:changed', {}) }
   const inbox = []
   let wake = null
@@ -239,8 +354,8 @@ async function startSession(client, tab, opts) {
       resume: resume || undefined,
       forkSession: fork || undefined,
       resumeSessionAt: resumeSessionAt || undefined,
-      model: model || undefined,
-      effort: effort || undefined,
+      model: (local ? localId(model) : model) || undefined,
+      effort: (!local && effort) || undefined,
       additionalDirectories: additionalDirectories?.length ? additionalDirectories : undefined,
       permissionMode: permissionMode || 'default',
       pathToClaudeCodeExecutable: claudePath,
@@ -250,6 +365,7 @@ async function startSession(client, tab, opts) {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       tools: { type: 'preset', preset: 'claude_code' },
       ...saverOptions(opts.saver, accountEnv),
+      ...(local && { settings: { env: accountEnv } }),
       settingSources: ['user', 'project', 'local'],
       stderr: line => send('claude:stderr', { line }),
       canUseTool: (toolName, input, { signal, suggestions, decisionReason, title }) =>
@@ -305,11 +421,12 @@ handle('send', (client, tab, msg) => {
 handle('control', async (client, tab, method, ...args) => {
   const s = route(client, tab)
   if (!s || !CONTROL.has(method)) return null
-  if (method === 'setModel' && isGemini(args[0]) !== !!s.isGemini) {
-    startSession(client, tab, { ...s.entry.info, model: args[0] })
+  if (method === 'setModel' && engine(args[0]) !== engine(s.entry.info.model)) {
+    startSession(client, tab, { ...s.entry.info, model: args[0], resume: s.isGemini || isGemini(args[0]) ? undefined : s.entry.sessionId })
     return null
   }
   if (method === 'setModel') s.entry.info.model = args[0]
+  if (method === 'setModel' && isLocal(args[0])) return s.q.setModel(localId(args[0]))
   if (method === 'setPermissionMode') s.entry.info.permissionMode = args[0]
   return s.q[method]?.(...args) ?? null
 })
@@ -464,7 +581,7 @@ handle('saveFile', async (client, name, content) => {
   return !r.canceled
 })
 handle('find', (client, text, opts) => text ? client.wc.findInPage(text, opts) : client.wc.stopFindInPage('clearSelection'))
-handle('info', () => ({ claudePath: claudePath || 'bundled', agyPath: agyPath || null, home: homedir(), platform: process.platform, version: app.getVersion() }))
+handle('info', () => ({ claudePath: claudePath || 'bundled', agyPath: agyPath || null, llamaPath: llamaPath || null, home: homedir(), platform: process.platform, version: app.getVersion() }))
 
 handle('statusLine', async (_, input) => {
   const settings = JSON.parse(await fs.readFile(path.join(homedir(), '.claude/settings.json'), 'utf8').catch(() => '{}'))
@@ -655,8 +772,11 @@ if (gotLock) app.whenReady().then(async () => {
   if (!background) createWindow(dirFrom(process.argv))
   else if (!devices.enabled) app.quit()
 })
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => app.quit())
+process.on('exit', () => llama?.child?.kill())
 app.on('will-quit', () => {
   killTerms(() => true)
+  stopLlama()
   for (const k of [...sessions.keys()]) stopSession(k)
   if (tempDir) rmSync(tempDir, { recursive: true, force: true })
 })

@@ -155,6 +155,22 @@ systemd.user.services.codedesk = {
 
 <br>
 
+## 🖥️ Local models
+
+Run a model on your own GPU with every Codedesk feature: tools, edits, permissions, skills, subagents, rewind and fork. Claude Code stays the agent and the local model becomes its brain.
+
+1. Install llama.cpp with GPU support. On NixOS with an NVIDIA card: `(llama-cpp.override { cudaSupport = true; })`.
+2. Open **Settings → Local model**. **Host here** lets Codedesk start `llama-server` itself. Pick a suggested model or paste a Hugging Face repo or a `.gguf` path. It downloads on first start.
+3. Pick it from the model menu, next to Claude and Gemini.
+
+**Connect to a server** works with anything that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.
+
+Codedesk tunes both sides. llama.cpp fits the model to your GPU, picks the largest context that keeps every layer on it, and moves MoE experts to RAM when VRAM runs out. It also runs flash attention, an 8-bit KV cache, prompt cache reuse, and MTP speculative decoding when the model ships an MTP head. Claude Code gets the real context size so it compacts in time, and its per-request header is turned off so the prompt cache survives between messages.
+
+When every Claude account is at its limit, Codedesk moves the conversation to the local model and continues (**Settings → Usage**, on by default). The **Back to** button on the notice switches it back.
+
+<br>
+
 ## 🧰 What's in it
 
 <details open>

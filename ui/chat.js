@@ -143,12 +143,16 @@ class Tab {
     this.startedAccount = this.account
     this.inited = false
     this.lastActive = Date.now()
+    const local = engineOf(this.model) === 'local'
+    if (local && App.local?.state !== 'ready') App.status(this, 'Loading the local model…')
     try {
-      await api.start(this.id, {
+      await (this.starting = api.start(this.id, {
         cwd: this.cwd, account: this.account, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
         effort: this.effort || undefined, additionalDirectories: this.addDirs,
-        saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents }, ...extra,
-      })
+        saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents },
+        ...(local && { local: localConfig() }), ...extra,
+      }))
+      if (local) App.status(this, '')
     } catch (e) {
       this.live = false
       this.startedAccount = null
@@ -165,6 +169,7 @@ class Tab {
   async ensureLive() {
     if (!this.cwd) return false
     if (!this.busy && (!this.live || this.startedAccount !== this.account)) await this.start()
+    else await this.starting?.catch(() => {})
     return this.busy || (this.live && this.startedAccount === this.account)
   }
 
@@ -241,7 +246,7 @@ class Tab {
         Tab.rateStatus[acct] = r.status
         if (r.status === 'allowed_warning') {
           const saver = settings.saverModel
-          const tabs = saver ? [...App.tabs.values()].filter(t => !/^gemini/i.test(t.model || '')) : []
+          const tabs = saver ? [...App.tabs.values()].filter(t => engineOf(t.model) === 'claude') : []
           for (const t of tabs) { t.beforeSaver ||= { model: t.model, effort: t.effort }; setModel(t, saver); setEffort(t, 'low') }
           const undo = button('Undo', () => {
             for (const t of tabs) if (t.beforeSaver) { setModel(t, t.beforeSaver.model); setEffort(t, t.beforeSaver.effort); t.beforeSaver = null }
@@ -359,13 +364,13 @@ class Tab {
 
   result(m) {
     this.setBusy(false)
-    this.cost = m.total_cost_usd || this.cost
+    if (engineOf(this.model) !== 'local') this.cost = m.total_cost_usd || this.cost
     App.status(this, `Done in ${dur(m.duration_ms)} · ${m.num_turns} turn${m.num_turns === 1 ? '' : 's'}`)
     const limitText = /hit your (usage )?limit|usage limit reached|limit reached/i.test(m.result || '')
     if (this.limited || limitText) {
       const at = this.limited > 0 ? this.limited : 0, acct = this.startedAccount || 'system'
       this.limited = 0
-      this.autoSwitch().catch(() => {}).finally(() => this.scheduleResume(at, false, acct))
+      this.autoSwitch().catch(() => false).then(local => local ? settings.autoContinue && this.send(Tab.CONTINUE_LOCAL) : this.scheduleResume(at, false, acct))
     } else if (m.subtype === 'error_max_turns') {
       this.add(el('div', 'notice warn', icon('gauge'), 'Stopped after the step limit (Settings → Usage). Send a message to keep going.'))
     } else if (m.subtype !== 'success' || m.is_error) {
@@ -462,14 +467,14 @@ class Tab {
   }
 
   async autoSwitch() {
-    if (!settings.autoSwitchAccount || /^gemini/i.test(this.model || '')) return
+    if (engineOf(this.model) !== 'claude') return
     const accts = (App.accounts || []).filter(a => a.signedIn !== false)
-    if (accts.length < 2) return
-    const usages = await Promise.all(accts.map(async a => {
+    const usages = settings.autoSwitchAccount && accts.length > 1 ? await Promise.all(accts.map(async a => {
       const c = App.usageByAccount[a.id]
       return { id: a.id, u: a.id !== this.account && c && Date.now() - c.at < 60000 ? c.u : await fetchUsage(a.id) }
-    }))
-    const p = pickAccount(this.account, usages)
+    })) : []
+    const p = usages.length ? pickAccount(this.account, usages) : null
+    if (p?.at !== 0 && settings.localFallback && await this.useLocal()) return true
     if (!p) return
     const prev = this.sessionId ? settings.sessionAccounts[this.sessionId] ?? null : this.accountPick
     setConversationAccount(this, p.id)
@@ -477,6 +482,18 @@ class Tab {
     this.add(el('div', 'notice', icon('user-switch'), el('span', 'grow', p.at
       ? `All accounts are at their limit. Switched to ${accountName(p.id)}, which resets first at ${clock(p.at)}.`
       : `Switched to ${accountName(p.id)}, which has room.`), undo))
+  }
+
+  async useLocal() {
+    App.local = await api.localStatus(localConfig()).catch(() => App.local)
+    const models = App.local?.models || []
+    const m = (models.find(x => x.value === settings.localFallbackModel) || models[0])?.value
+    if (!m) return false
+    const prev = this.model
+    setModel(this, m)
+    const back = button(`Back to ${modelInfo(this, prev).label}`, () => { setModel(this, prev); back.disabled = true }, 'ghost sm')
+    this.add(el('div', 'notice', icon('hard-drives'), el('span', 'grow', `Every Claude account is at its limit. Switched to ${modelInfo(this, m).label}, running on this PC.`), back))
+    return true
   }
 
   renderResume() {
@@ -546,6 +563,7 @@ class Tab {
   }
 
   static rateStatus = {}
+  static CONTINUE_LOCAL = 'Continue the task you were working on from where you left off.'
   static CONTINUE = 'Your usage limit has reset. Continue the task you were working on from where you left off.'
   static resumes() { try { return JSON.parse(localStorage.getItem('resumes') || '{}') } catch { return {} } }
   static saveResume(id, v) {

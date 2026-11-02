@@ -6,6 +6,7 @@ const App = {
   chatEl: $('#chat'),
   info: {},
   google: {},
+  local: {},
   fileCache: new Map(),
 
   newTab(cwd, { activate = true } = {}) {
@@ -69,7 +70,7 @@ const App = {
     $('#chat-path').textContent = tab.cwd ? tab.cwd.replace(App.info.home, '~') + (tab.addDirs.length ? ` +${tab.addDirs.length}` : '') + (App.accounts?.length > 1 ? ` · ${accountName(tab.account)}` : '') : ''
     $('#chat-path').title = [tab.cwd, ...tab.addDirs].filter(Boolean).join('\n')
     document.title = tab.cwd ? `${tab.title} ·${tab.name}` : 'Codedesk'
-    const agentName = /^gemini/i.test(tab.model || '') ? modelInfo(tab).label : 'Claude'
+    const agentName = engineOf(tab.model) === 'claude' ? 'Claude' : modelInfo(tab).label
     input.placeholder = tab.suggestion ? `${tab.suggestion}   (Tab to use)` : `Ask ${agentName} to build, fix or explain something`
     $('#send').hidden = tab.busy && !input.value.trim()
     $('#stop').hidden = !tab.busy || !!input.value.trim()
@@ -218,6 +219,7 @@ const App = {
     model: { description: 'Choose the model', run: () => $('#model-chip').click() },
     gemini: { description: 'Switch to Gemini (Antigravity)', run: t => useGemini(t) },
     google: { description: 'Antigravity and Gemini settings', run: () => openSettings('google') },
+    local: { description: 'Local model settings', run: () => openSettings('local') },
     permissions: { description: 'Choose the permission mode', run: () => $('#mode-chip').click() },
     config: { description: 'Open settings', run: () => openSettings() },
     settings: { description: 'Open settings', run: () => openSettings() },
@@ -472,7 +474,7 @@ const MORE_MODELS = [
 function mainModels(tab) {
   const raw = tab?.meta.models.length ? tab.meta.models : FALLBACK_MODELS
   const seen = new Set()
-  const list = [...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !MORE_MODELS.some(([id]) => id === m.value) && !seen.has(m.value) && seen.add(m.value))
+  const list = [...(App.local?.models || []), ...(App.google?.models || []), ...raw].filter(m => m.value !== 'default' && !MORE_MODELS.some(([id]) => id === m.value) && !seen.has(m.value) && seen.add(m.value))
   return list.map(m => {
     const [name, ...rest] = (m.description || '').split(' · ')
     return { ...m, label: m.displayName || name || m.value, detail: rest.length ? rest.join(' · ') : m.displayName ? m.description || '' : '' }
@@ -482,7 +484,7 @@ function modelInfo(tab, value = tab.model) {
   const m = mainModels(tab).find(x => x.value === value)
   if (m) return m
   const more = MORE_MODELS.find(([id]) => id === value)
-  return { value, label: more?.[1] || value || 'Opus', detail: '' }
+  return { value, label: more?.[1] || (engineOf(value) === 'local' ? value.slice(6) : value) || 'Opus', detail: '' }
 }
 
 function defaultEffortFor(m) {
@@ -515,14 +517,14 @@ function renderChips(tab) {
   $('#effort-chip').className = 'chip effort-chip lvl-' + effort.value
   $('#effort-chip').hidden = model.supportsEffort === false || (!!model.description && !model.supportsEffort && !model.supportedEffortLevels)
   const ac = $('#account-chip')
-  ac.hidden = (App.accounts?.length || 0) < 2 || /^gemini/i.test(tab.model || '')
+  ac.hidden = (App.accounts?.length || 0) < 2 || engineOf(tab.model) !== 'claude'
   if (!ac.hidden) ac.replaceChildren(icon('user-circle'), el('span', '', accountName(tab.account).split('@')[0]))
   $('#fast-chip').hidden = !model.supportsFastMode
   $('#fast-chip').classList.toggle('on', tab.fast)
 }
 
 function restartIdleTabs() {
-  for (const t of App.tabs.values()) if (t.live && !t.busy && !t.permissions && !/^gemini/i.test(t.model || '')) { api.stop(t.id); t.live = false }
+  for (const t of App.tabs.values()) if (t.live && !t.busy && !t.permissions && engineOf(t.model) === 'claude') { api.stop(t.id); t.live = false }
 }
 
 function setMode(tab, value) {
@@ -531,11 +533,10 @@ function setMode(tab, value) {
   App.tabChanged(tab)
 }
 function setModel(tab, value) {
-  const prevGemini = /^gemini/i.test(tab.model || '')
-  const nextGemini = /^gemini/i.test(value || '')
+  const prev = engineOf(tab.model)
   tab.model = value
   if (tab.live) {
-    if (prevGemini !== nextGemini) tab.start()
+    if (prev !== engineOf(value)) tab.start()
     else api.control(tab.id, 'setModel', value).catch(e => toast(String(e.message || e), 'err'))
   }
   tab.savePrefs()
@@ -598,7 +599,7 @@ $('#model-chip').onclick = e => {
     { label: 'Saver rules…', icon: 'sliders-horizontal', run: () => openSettings('usage') },
   ]
   menu(e.currentTarget, [{ header: 'Model' }, ...saver, '-',
-    ...mainModels(tab).map(m => ({ label: m.label, detail: m.detail, icon: /^gemini/i.test(m.value) ? 'sparkle' : 'cpu', checked: !tab.saver && tab.model === m.value, run: () => pick(m.value) })),
+    ...mainModels(tab).map(m => ({ label: m.label, detail: m.detail, icon: { gemini: 'sparkle', local: 'hard-drives', claude: 'cpu' }[engineOf(m.value)], checked: !tab.saver && tab.model === m.value, run: () => pick(m.value) })),
     '-', ...(legacySelected ? [{ header: 'More models' }, ...more] : [{ label: 'More models', icon: 'stack', more }])])
 }
 $('#effort-chip').onclick = e => {
@@ -952,6 +953,12 @@ function signInAgy() {
   Terminals.run(App.active, JSON.stringify(App.info.agyPath))
   toast('Finish signing in to Google in the terminal, then press Refresh in Antigravity settings')
 }
+function useLocal(tab) {
+  const m = App.local?.models?.find(x => x.value === settings.localFallbackModel)?.value || App.local?.models?.[0]?.value
+  if (!m) return openSettings('local')
+  setModel(tab, m)
+  toast('Switched to ' + modelInfo(tab, m).label)
+}
 function useGemini(tab) {
   const m = App.google?.models?.[0]?.value
   if (!m) return toast(App.info.agyPath ? 'Sign in to Antigravity first' : 'Install the Antigravity CLI first', 'err')
@@ -963,11 +970,12 @@ const accountName = id => App.accounts?.find(a => a.id === id)?.email || (id ===
 const accountDetail = a => [a.plan && a.plan[0].toUpperCase() + a.plan.slice(1), a.org].filter(Boolean).join(' · ')
 
 async function loadAccount() {
-  const [r, g, list] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({})), api.accounts().catch(() => null)])
+  const [r, g, list, local] = await Promise.all([api.cli(['auth', 'status']), api.googleStatus().catch(() => ({})), api.accounts().catch(() => null), api.localStatus(localConfig()).catch(() => ({}))])
   let s = {}
   try { s = JSON.parse(r.stdout) } catch {}
   App.account = s
   App.google = g || {}
+  App.local = local || {}
   if (list) App.accounts = list
   const def = App.accounts?.find(a => a.id === settings.account)
   $('#account-name').textContent = def?.email || (s.loggedIn
@@ -996,6 +1004,10 @@ $('#account').onclick = e => {
     ...(g.loggedIn ? [] : [{ label: 'Sign in with Google (Antigravity)', icon: 'sign-in', run: signInAgy }]),
     { label: 'Use Gemini in this tab', icon: 'cpu', run: () => useGemini(App.active) },
     { label: 'Antigravity Settings', icon: 'gear', run: () => openSettings('google') },
+    '-',
+    { header: `Local model · ${App.local?.state === 'ready' ? 'Running' : App.local?.models?.length ? 'Ready to start' : 'Not set up'}` },
+    { label: 'Use local model in this tab', icon: 'hard-drives', run: () => useLocal(App.active) },
+    { label: 'Local model settings', icon: 'gear', run: () => openSettings('local') },
   ])
 }
 
@@ -1074,6 +1086,7 @@ function openPalette() {
   const actions = [
     ['Use Gemini (Antigravity)', 'sparkle', () => useGemini(tab)],
     ['Antigravity Settings', 'gear', () => openSettings('google')],
+    ['Use local model', 'hard-drives', () => useLocal(tab)],
     ['New tab', 'plus', () => App.newTab(null), 'Ctrl T'],
     ['New conversation', 'chat-circle', () => tab.cwd ? tab.open(null) : App.pickFolder()],
     ['Open folder…', 'folder-open', () => App.pickFolder(), 'Ctrl O'],
@@ -1251,6 +1264,61 @@ function openSettings(section = 'appearance') {
     return [box]
   }
 
+  const LOCAL_PRESETS = [
+    ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 3-bit with MTP, 9.7 GB, for 16 GB GPUs'],
+    ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 3.5-bit with MTP, 11.3 GB, for 20 GB GPUs or more'],
+    ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 2.75-bit with MTP, 8.9 GB, for 12 GB GPUs'],
+    ['unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL', 'Qwen3.6 35B-A3B MoE, 20.8 GB, spills experts to RAM'],
+  ]
+  const localPane = () => {
+    const box = el('div', 'stack')
+    const field = (key, placeholder, opts = {}) => {
+      const i = el('input', 'field mono')
+      Object.assign(i, { value: settings[key], placeholder, spellcheck: false, ...opts })
+      i.onchange = () => { saveSettings({ [key]: i.type === 'number' ? +i.value : i.value.trim() }); refresh() }
+      return i
+    }
+    const presets = el('datalist', '', ...LOCAL_PRESETS.map(([v, l]) => Object.assign(el('option', '', l), { value: v })))
+    presets.id = 'local-presets'
+    const source = field('localSource', 'user/repo/file.gguf, user/repo:QUANT or /path/to/model.gguf')
+    source.setAttribute('list', presets.id)
+    const draw = st => {
+      App.local = st
+      const host = settings.localMode !== 'connect'
+      const models = (st.models || []).map(m => [m.value, m.displayName || m.value])
+      box.replaceChildren(
+        row('Where the model runs', segmented('localMode', [['host', 'Host here', 'hard-drives'], ['connect', 'Connect to a server', 'plugs']], refresh),
+          host ? 'Codedesk starts llama.cpp for you when a conversation uses the local model.' : 'Any server that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.'),
+        ...(host ? [
+          Object.assign(row('Model', el('div', 'stack', source, presets), 'Pick a suggestion or paste a Hugging Face repo or a .gguf path. It downloads on first start.'), { className: 'setting wide' }),
+          row('Context size', field('localCtx', 'Auto', { type: 'number', min: 4096, step: 4096 }), 'Tokens the model can see. Auto picks the most that fits with the whole model on the GPU, at least 32k. Claude Code compacts the conversation before it runs out.'),
+          row('Extra llama.cpp flags', field('localArgs', '--spec-type ngram-mod'), 'Added after the defaults: fit to GPU memory, one slot, flash attention, 8-bit KV cache, prompt cache reuse, vision on the CPU, MTP speculative decoding when the model has a head for it.'),
+          el('div', 'kv',
+            el('span', '', 'llama.cpp'), el('span', 'mono', st.path || 'Not installed'),
+            el('span', '', 'Devices'), el('span', 'mono', (st.devices || []).join(', ') || 'CPU only'),
+            el('span', '', 'Server'), el('span', '', st.state === 'ready' ? `Running ${st.alias}${st.ctx ? ` · ${st.ctx.toLocaleString()} tokens of context` : ''}` : st.state === 'loading' ? `Loading ${st.alias}… The first start downloads it, which can take a while.` : 'Stopped')),
+          ...(st.log?.length && st.state !== 'ready' ? [el('pre', 'mono small muted local-log', st.log.join('\n'))] : []),
+        ] : [
+          row('Server address', field('localUrl', 'http://127.0.0.1:11434')),
+          row('API key', field('localKey', 'Leave empty if the server has none', { type: 'password' })),
+          row('Models found', el('span', 'mono', models.map(m => m[1]).join(', ') || 'None, check the address')),
+        ]),
+        row('Use when every Claude account is at its limit', toggle('localFallback'), 'Tries your other accounts first, then moves the conversation to this model and continues.'),
+        ...(models.length > 1 ? [row('Model to switch to', select('localFallbackModel', [['', 'First available'], ...models]))] : []),
+        el('div', 'row wrap',
+          host && st.state === 'stopped' ? button('Start now', async e => { e.currentTarget.disabled = true; api.localStart(localConfig()).catch(err => toast(String(err.message || err), 'err')); setTimeout(refresh, 500) }, 'primary', 'play') : null,
+          host && st.state !== 'stopped' ? button('Stop', async () => { await api.localStop(); refresh() }, 'ghost', 'stop') : null,
+          button('Refresh', refresh, 'ghost', 'arrows-clockwise'),
+          button('Use in this tab', () => { m.close(); useLocal(tab) }, '', 'hard-drives')),
+      )
+    }
+    const refresh = () => api.localStatus(localConfig()).then(draw, () => {})
+    draw(App.local || {})
+    refresh()
+    const timer = setInterval(() => box.isConnected ? App.local?.state === 'loading' && refresh() : clearInterval(timer), 2000)
+    return [box]
+  }
+
   const sections = {
     appearance: ['Appearance', 'palette', () => [
       row('Theme', segmented('theme', [['system', 'System', 'circle-half'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], () => { pane.replaceChildren(...sections.appearance[2]()) })),
@@ -1275,6 +1343,7 @@ function openSettings(section = 'appearance') {
     usage: ['Usage', 'gauge', () => [
       row('Continue after a usage limit resets', toggle('autoContinue')),
       row('Switch to another account at the limit', toggle('autoSwitchAccount'), 'Moves a conversation that hits its limit to a signed-in account with room, or to the one that resets first.'),
+      row('Then use the local model', toggle('localFallback'), 'When every account is at its limit, the conversation moves to your local model and continues. Set it up in Local model.'),
       row('Continue message', continueBox, 'Sent when Claude picks a task back up. Leave empty for the default. Set one for a single conversation with Edit message on its limit notice.'),
       row('Codedesk Saver', toggle('saverOn', () => App.tabs.forEach(t => { if (!t.sessionId) { t.saver = settings.saverOn; App.tabChanged(t) } })), 'Picks the model once, when a conversation starts, so the prompt cache is never rebuilt. Skills, slash commands, plan mode, attachments and long prompts always keep your default model.'),
       row('Quick tasks', el('div', 'row', saverWords('saverQuickWords'), select('saverQuickModel', SAVER_MODELS)), 'Short prompts containing these words. Haiku is raised to Sonnet when skills are installed.'),
@@ -1305,6 +1374,7 @@ function openSettings(section = 'appearance') {
         button('Refresh', async () => { await loadAccount(); show('google') }, 'ghost', 'arrows-clockwise'),
         button('Use Gemini now', () => { m.close(); useGemini(tab) }, '', 'sparkle')),
     ]],
+    local: ['Local model', 'hard-drives', localPane],
     claude: ['Claude Code', 'terminal', () => [
       el('div', 'kv',
         el('span', '', 'Account'), el('span', '', acct.loggedIn ? [acct.email, acct.subscriptionType || acct.authMethod].filter(Boolean).join(', ') : 'Not signed in'),
@@ -1373,6 +1443,7 @@ $('#find-prev').onclick = () => api.find($('#find-input').value, { findNext: tru
 $('#find-close').onclick = closeFind
 addEventListener('pc-only', () => toast('Add accounts on the PC: Claude sign-in opens a browser there.', 'err'))
 api.on('remote:paired', ({ name }) => toast(`New device paired: ${name}`))
+api.on('local:changed', () => api.localStatus(localConfig()).then(st => { App.local = st }, () => {}))
 api.on('shared:changed', patch => {
   Object.assign(settings, patch)
   renderSessions()
