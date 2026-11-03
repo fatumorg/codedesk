@@ -3,6 +3,7 @@ import path from 'node:path'
 
 export const LOCAL_PORT = 8931
 export const isLocal = m => /^local:/.test(m || '')
+export const localMode = m => m === 'auto' ? 'acceptEdits' : m || 'default'
 export const localId = m => String(m).slice(6)
 
 export function modelSource(src) {
@@ -59,14 +60,15 @@ export function localEnv({ url, key }, model, ctx) {
   }
 }
 
-const loaded = b => b.type === 'tool_reference' ? { type: 'text', text: `Tool loaded: ${b.tool_name}` } : b
-const unref = b => b.type === 'tool_result' && Array.isArray(b.content) ? { ...b, content: b.content.map(loaded) } : b
+const NO_IMAGE = { type: 'text', text: '[Image left out: this local model cannot see images]' }
 
-export function forLlama(messages) {
+export function forLlama(messages, blind = false) {
   const out = [], pending = []
+  const plain = b => b.type === 'tool_reference' ? { type: 'text', text: `Tool loaded: ${b.tool_name}` } : blind && b.type === 'image' ? NO_IMAGE : b
+  const fix = b => b.type === 'tool_result' && Array.isArray(b.content) ? { ...b, content: b.content.map(plain) } : plain(b)
   const blocks = c => typeof c === 'string' ? [{ type: 'text', text: c }] : c || []
   for (let m of messages || []) {
-    if (Array.isArray(m.content)) m = { ...m, content: m.content.map(unref) }
+    if (Array.isArray(m.content)) m = { ...m, content: m.content.map(fix) }
     if (m.role === 'system') {
       const text = blocks(m.content).map(b => b.text || '').join('\n')
       const block = { type: 'text', text: `<system-reminder>\n${text}\n</system-reminder>` }

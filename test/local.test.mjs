@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
-import { aliasOf, forLlama, isLocal, localEnv, localId, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from '../local.mjs'
+import { aliasOf, forLlama, isLocal, localEnv, localId, localMode, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from '../local.mjs'
 
 test('model sources map to llama.cpp download or file flags', () => {
   assert.deepEqual(modelSource('ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf'),
@@ -25,7 +25,6 @@ test('server args keep the key, bind to localhost and add MTP only for MTP model
   assert.equal(b[b.indexOf('-fitc') + 1], '32768')
   assert.ok(!b.includes('draft-mtp'))
   assert.ok(serverArgs({ source: 'unsloth/Q-MTP-GGUF/Q-UD-IQ3_XXS.gguf' }, { key: 'k' }).includes('draft-mtp'))
-  // UD-IQ3_S quant on a short source string without "mtp" still triggers draft-mtp
   assert.ok(serverArgs({ source: 'unsloth/Q-M:UD-IQ3_S' }, { key: 'k' }).includes('draft-mtp'))
   assert.ok(serverArgs({ source: 'unsloth/Q:UD-IQ2_S' }, { key: 'k' }).includes('draft-mtp'))
   assert.ok(serverArgs({ source: 'unsloth/Q:UD-Q2_K_XL' }, { key: 'k' }).includes('draft-mtp'))
@@ -82,4 +81,20 @@ test('mid-conversation system messages fold into user turns so strict chat templ
 test('tool search results become text so llama.cpp templates accept them', () => {
   const [m] = forLlama([{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'tool_reference', tool_name: 'mcp__x__y' }] }] }])
   assert.deepEqual(m.content[0].content, [{ type: 'text', text: 'Tool loaded: mcp__x__y' }])
+})
+
+test('images become a note for a hosted model without vision, and pass through otherwise', () => {
+  const img = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }
+  const msgs = [{ role: 'user', content: [{ type: 'text', text: 'hi' }, img, { type: 'tool_result', tool_use_id: 't', content: [img] }] }]
+  const [blind] = forLlama(msgs, true)
+  assert.equal(blind.content[0].text, 'hi')
+  assert.match(blind.content[1].text, /cannot see images/)
+  assert.match(blind.content[2].content[0].text, /cannot see images/)
+  assert.deepEqual(forLlama(msgs)[0].content, msgs[0].content)
+})
+
+test('local sessions run auto mode as accept-edits, since the safety classifier would run on the local model', () => {
+  assert.equal(localMode('auto'), 'acceptEdits')
+  assert.equal(localMode('plan'), 'plan')
+  assert.equal(localMode(undefined), 'default')
 })

@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
 import { createDevices, createHub, createRemoteServer, createShared, parseTailscale, pickShared } from './remote.mjs'
-import { aliasOf, forLlama, isLocal, LOCAL_PORT, localEnv, localId, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from './local.mjs'
+import { aliasOf, forLlama, isLocal, LOCAL_PORT, localEnv, localId, localMode, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from './local.mjs'
 import http from 'node:http'
 import { Readable } from 'node:stream'
 
@@ -70,6 +70,7 @@ const isGemini = m => /^gemini/i.test(m || '')
 const engine = m => isGemini(m) ? 'gemini' : isLocal(m) ? 'local' : 'claude'
 
 const localKey = crypto.randomUUID()
+const llamaUrl = `http://127.0.0.1:${LOCAL_PORT}`
 const localLog = []
 let llama = null
 let llamaDevices
@@ -117,6 +118,7 @@ function ensureLlama(cfg) {
     await waitHealthy(child)
     const props = await fetch(`http://127.0.0.1:${LOCAL_PORT}/props`, { headers: { authorization: `Bearer ${localKey}` } }).then(r => r.json(), () => null)
     me.ctx = props?.default_generation_settings?.n_ctx
+    me.vision = props?.modalities?.vision
     hub.broadcast('local:changed', {})
   })()
   me.ready.catch(() => {})
@@ -127,7 +129,7 @@ function ensureLlama(cfg) {
 async function localTarget(cfg = {}, id) {
   if (cfg.mode !== 'connect') {
     await ensureLlama(pickHosted(cfg.hosted, id) || {})
-    return { url: `http://127.0.0.1:${LOCAL_PORT}`, key: localKey, ctx: llama?.ctx }
+    return { url: llamaUrl, key: localKey, ctx: llama?.ctx }
   }
   if (!/^https?:\/\//.test(cfg.url || '')) throw new Error('Set the local model server address in Settings → Local model')
   return { url: cfg.url, key: cfg.key, ctx: cfg.ctx }
@@ -144,7 +146,7 @@ async function viaProxy(target) {
         let body = Buffer.concat(chunks)
         if (req.method === 'POST' && /\/v1\/messages/.test(req.url)) {
           const j = JSON.parse(body)
-          j.messages = forLlama(j.messages)
+          j.messages = forLlama(j.messages, proxyTarget === llamaUrl && llama?.vision === false)
           body = Buffer.from(JSON.stringify(j))
         }
         const headers = Object.fromEntries(Object.entries(req.headers).filter(([k]) => !['host', 'content-length', 'connection', 'accept-encoding'].includes(k)))
@@ -332,10 +334,11 @@ function saverOptions(saver = {}, accountEnv) {
 }
 
 async function startSession(client, tab, opts) {
-  const { cwd, resume, model, permissionMode, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
+  const { cwd, resume, model, effort, additionalDirectories, forkSession: fork, resumeSessionAt } = opts
   if (!existsSync(cwd)) return client.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
   if (isGemini(model)) return startGeminiSession(client, tab, opts)
   const local = isLocal(model)
+  const permissionMode = local ? localMode(opts.permissionMode) : opts.permissionMode
   const target = local && await viaProxy(await localTarget(opts.local, localId(model)))
   const accountEnv = local ? localEnv(target, localId(model), target.ctx) : await accounts().env(opts.account)
   restartTab(client, tab)
@@ -437,6 +440,7 @@ handle('control', async (client, tab, method, ...args) => {
   }
   if (method === 'setModel') s.entry.info.model = args[0]
   if (method === 'setModel' && isLocal(args[0])) return s.q.setModel(localId(args[0]))
+  if (method === 'setPermissionMode' && isLocal(s.entry.info.model)) args[0] = localMode(args[0])
   if (method === 'setPermissionMode') s.entry.info.permissionMode = args[0]
   return s.q[method]?.(...args) ?? null
 })
