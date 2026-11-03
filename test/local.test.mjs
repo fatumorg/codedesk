@@ -33,6 +33,8 @@ test('local env routes every Claude Code model slot to the local model', () => {
   for (const k of ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL']) assert.equal(e[k], 'm')
   assert.equal(e.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '65536')
   assert.equal(e.ENABLE_TOOL_SEARCH, 'true')
+  assert.equal(e.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '8192')
+  assert.equal(localEnv({ url: 'http://h' }, 'm', 20000).CLAUDE_CODE_MAX_OUTPUT_TOKENS, '4096')
   assert.equal(localEnv({ url: 'http://h' }, 'm', 0).CLAUDE_CODE_MAX_CONTEXT_TOKENS, undefined)
 })
 

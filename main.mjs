@@ -354,6 +354,7 @@ async function startSession(client, tab, opts) {
   }
   const send = (ch, data) => entry.emit(ch, data)
 
+  const saver = saverOptions(opts.saver, accountEnv)
   s.q = query({
     prompt: prompts(),
     options: {
@@ -371,7 +372,8 @@ async function startSession(client, tab, opts) {
       enableFileCheckpointing: true,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       tools: { type: 'preset', preset: 'claude_code' },
-      ...saverOptions(opts.saver, accountEnv),
+      ...saver,
+      ...(local && { disallowedTools: [...(saver.disallowedTools || []), 'Workflow', 'ScheduleWakeup', 'ReportFindings', 'ListAgents'] }),
       ...(local && { settings: { env: accountEnv } }),
       settingSources: ['user', 'project', 'local'],
       stderr: line => send('claude:stderr', { line }),

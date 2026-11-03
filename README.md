@@ -165,7 +165,7 @@ Run a model on your own GPU with every Codedesk feature: tools, edits, permissio
 
 **Connect to a server** works with anything that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.
 
-Codedesk tunes both sides. llama.cpp fits the model to your GPU, picks the largest context that keeps every layer on it, and moves MoE experts to RAM when VRAM runs out. It also runs flash attention, an 8-bit KV cache, prompt cache reuse, and MTP speculative decoding when the model ships an MTP head. Claude Code gets the real context size so it compacts in time, and its per-request header is turned off so the prompt cache survives between messages.
+Codedesk tunes both sides. llama.cpp fits the model to your GPU, picks the largest context that keeps every layer on it, and moves MoE experts to RAM when VRAM runs out. It also runs flash attention, a 4-bit KV cache (about twice the context of 8-bit), prompt cache reuse, and MTP speculative decoding when the model ships an MTP head. Claude Code gets the real context size so it compacts in time, a reply limit sized to that context, and no tools a local model has no use for. Its per-request header is turned off so the prompt cache survives between messages.
 
 When every Claude account is at its limit, Codedesk moves the conversation to the local model and continues (**Settings → Usage**, on by default). The **Back to** button on the notice switches it back. A conversation too long for the local model's context continues in a new tab instead, starting from a summary of where it stood.
 

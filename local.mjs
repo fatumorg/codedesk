@@ -24,8 +24,8 @@ export function serverArgs(cfg, { port = LOCAL_PORT, key }) {
   const ctx = Number.isInteger(+cfg.ctx) && +cfg.ctx > 0 ? ['-c', String(+cfg.ctx)] : ['-fitc', '32768']
   return [
     ...args, '--alias', alias, '--host', '127.0.0.1', '--port', String(port), '--api-key', key,
-    ...ctx, '-np', '1', '--no-mmproj-offload', '-fa', 'on', '-ctk', 'q8_0', '-ctv', 'q8_0', '--jinja', '--cache-reuse', '256',
-    ...(/mtp/i.test(alias) ? ['--spec-type', 'draft-mtp'] : []),
+    ...ctx, '-np', '1', '--no-mmproj-offload', '-fa', 'on', '-ctk', 'q4_0', '-ctv', 'q4_0', '--jinja', '--cache-reuse', '256',
+    ...(/mtp/i.test(alias) ? ['--spec-type', 'draft-mtp', '-ctkd', 'q4_0', '-ctvd', 'q4_0'] : []),
     ...String(cfg.args || '').split(/\s+/).filter(Boolean),
   ]
 }
@@ -46,7 +46,7 @@ export function localEnv({ url, key }, model, ctx) {
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     ENABLE_TOOL_SEARCH: 'true',
     API_TIMEOUT_MS: '1800000',
-    ...(+ctx > 0 && { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(+ctx) }),
+    ...(+ctx > 0 && { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(+ctx), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.min(16384, Math.max(4096, Math.floor(ctx / 8)))) }),
   }
 }
 
