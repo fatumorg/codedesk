@@ -370,7 +370,7 @@ class Tab {
     if (this.limited || limitText) {
       const at = this.limited > 0 ? this.limited : 0, acct = this.startedAccount || 'system'
       this.limited = 0
-      this.autoSwitch().catch(() => false).then(local => local ? settings.autoContinue && this.send(Tab.CONTINUE_LOCAL) : this.scheduleResume(at, false, acct))
+      this.autoSwitch().catch(() => false).then(local => local === true ? settings.autoContinue && this.send(Tab.CONTINUE_LOCAL) : !local && this.scheduleResume(at, false, acct))
     } else if (m.subtype === 'error_max_turns') {
       this.add(el('div', 'notice warn', icon('gauge'), 'Stopped after the step limit (Settings → Usage). Send a message to keep going.'))
     } else if (m.subtype !== 'success' || m.is_error) {
@@ -489,11 +489,34 @@ class Tab {
     const models = App.local?.models || []
     const m = (models.find(x => x.value === settings.localFallbackModel) || models[0])?.value
     if (!m) return false
+    const room = App.local?.ctx || +settings.localCtx || 32768, used = this.context?.totalTokens || 0
+    if (used > room / 2) return this.handOff(m, used, room)
     const prev = this.model
     setModel(this, m)
     const back = button(`Back to ${modelInfo(this, prev).label}`, () => { setModel(this, prev); back.disabled = true }, 'ghost sm')
     this.add(el('div', 'notice', icon('hard-drives'), el('span', 'grow', `Every Claude account is at its limit. Switched to ${modelInfo(this, m).label}, running on this PC.`), back))
     return true
+  }
+
+  handOff(model, used, room) {
+    const last = (sel, n, max) => $$(sel, this.messages).slice(-n).map(e => e.innerText.trim().slice(-max)).filter(Boolean)
+    const section = (title, items) => items.length ? [title, ...items] : []
+    const prompt = [
+      'You are taking over a task from a conversation that is too long for your context. Here is where it stands.',
+      ...section('Latest requests from the user:', last('.user', 3, 1500).map(t => '> ' + t.replace(/\n/g, '\n> '))),
+      ...section('Latest progress notes:', last('.assistant', 2, 2500)),
+      ...section('Open to-dos:', this.todos.filter(t => t.status !== 'completed').map(t => `- ${t.content}`)),
+      'Check git status and git diff in the project to see what is already done, then continue the task.',
+    ].join('\n\n')
+    const tab = App.newTab(this.cwd, { activate: false })
+    Object.assign(tab, { model, mode: this.mode, title: this.title })
+    if (settings.autoContinue) tab.send(prompt)
+    else tab.draft = prompt
+    App.renderTabs()
+    const label = modelInfo(tab, model).label
+    const open = button('Open it', () => App.activate(tab), 'ghost sm')
+    this.add(el('div', 'notice', icon('hard-drives'), el('span', 'grow', `Every Claude account is at its limit, and this conversation (${fmtTokens(used)} tokens) is too long for ${label} (${fmtTokens(room)}). Continued in a new tab on ${label}, with a summary of where it stands.`), open))
+    return 'handoff'
   }
 
   renderResume() {

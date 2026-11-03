@@ -1303,7 +1303,7 @@ function openSettings(section = 'appearance') {
           host ? 'Codedesk starts llama.cpp for you when a conversation uses the local model.' : 'Any server that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.'),
         ...(host ? [
           Object.assign(row('Model', el('div', 'stack', source, presets), 'Pick a suggestion or paste a Hugging Face repo or a .gguf path. It downloads on first start.'), { className: 'setting wide' }),
-          row('Context size', field('localCtx', 'Auto', { type: 'number', min: 4096, step: 4096 }), 'Tokens the model can see. Auto picks the most that fits with the whole model on the GPU, at least 32k. Claude Code compacts the conversation before it runs out.'),
+          row('Context size', field('localCtx', 'Auto', { type: 'number', min: 4096, step: 4096 }), 'Tokens the model can see. Auto picks the most that fits with the whole model on the GPU, at least 32k. A bigger number moves part of the model to RAM, which is several times slower, and it has to fit in RAM.'),
           row('Extra llama.cpp flags', field('localArgs', '--spec-type ngram-mod'), 'Added after the defaults: fit to GPU memory, one slot, flash attention, 8-bit KV cache, prompt cache reuse, vision on the CPU, MTP speculative decoding when the model has a head for it.'),
           el('div', 'kv',
             el('span', '', 'llama.cpp'), el('span', 'mono', st.path || 'Not installed'),

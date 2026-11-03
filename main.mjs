@@ -3,7 +3,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell 
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { cpSync, existsSync, rmSync, statSync } from 'node:fs'
 import fs from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { freemem, homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createInterface } from 'node:readline'
@@ -55,6 +55,7 @@ function findBin(name) {
 const claudePath = findBin('claude')
 const agyPath = findBin('agy')
 const llamaPath = findBin('llama-server')
+const systemdRun = process.platform === 'linux' && findBin('systemd-run')
 
 const run = (cmd, args, opts = {}) => new Promise(resolve =>
   execFile(cmd, args, { maxBuffer: 64 << 20, timeout: 120000, ...opts }, (err, stdout, stderr) =>
@@ -72,18 +73,22 @@ const localKey = crypto.randomUUID()
 const localLog = []
 let llama = null
 let llamaDevices
+let scopes
+const canScope = () => scopes ||= systemdRun ? run(systemdRun, ['--user', '--scope', '--quiet', '--collect', 'true'], { timeout: 10000 }).then(r => !r.code) : Promise.resolve(false)
 const logLocal = line => { localLog.push(line); if (localLog.length > 40) localLog.shift() }
 const getLlamaDevices = () => llamaDevices ||= llamaPath
   ? run(llamaPath, ['--list-devices'], { timeout: 20000 }).then(r => (r.stdout + r.stderr).split('\n').map(l => l.trim()).filter(l => /^\w+\d*: /.test(l)))
   : Promise.resolve([])
 
 async function waitHealthy(child) {
-  while (child.exitCode === null && !child.killed) {
+  while (child.exitCode === null && child.signalCode === null) {
     const ok = await fetch(`http://127.0.0.1:${LOCAL_PORT}/v1/models`, { headers: { authorization: `Bearer ${localKey}` } }).then(r => r.ok, () => false)
     if (ok) return
     await new Promise(r => setTimeout(r, 1000))
   }
-  throw new Error('Local model server stopped: ' + (localLog.slice(-3).join(' ') || `exit code ${child.exitCode}`))
+  throw new Error(child.signalCode === 'SIGKILL'
+    ? 'The local model ran out of memory. Lower the context size in Settings → Local model, or set it to Auto.'
+    : 'Local model server stopped: ' + (localLog.slice(-3).join(' ') || `exit code ${child.exitCode}`))
 }
 
 function stopLlama() {
@@ -101,9 +106,11 @@ function ensureLlama(cfg) {
   const me = llama = { child: null, sig, alias: modelSource(cfg.source).alias, ready: null }
   me.ready = (async () => {
     if (prev && prev.exitCode === null) await new Promise(r => prev.once('exit', r))
+    const scoped = await canScope()
     if (llama !== me) throw new Error('Local model server was stopped')
     localLog.length = 0
-    const child = me.child = spawn(llamaPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const limit = ['--user', '--scope', '--quiet', '--collect', '-p', `MemoryMax=${Math.max(freemem() - 2 ** 30, 2 ** 31)}`, '-p', 'MemorySwapMax=0', '--', llamaPath, ...args]
+    const child = me.child = spawn(...(scoped ? [systemdRun, limit] : [llamaPath, args]), { stdio: ['ignore', 'pipe', 'pipe'] })
     for (const s of [child.stdout, child.stderr]) createInterface({ input: s }).on('line', logLocal)
     child.on('error', e => logLocal(String(e.message || e)))
     child.on('exit', () => { if (llama === me) llama = null; hub.broadcast('local:changed', {}) })
