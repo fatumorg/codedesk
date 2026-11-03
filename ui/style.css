@@ -331,6 +331,8 @@ details.tool { border: 1px solid var(--border); border-radius: calc(10px * var(-
 @container (max-width: 420px) { #mention, #slash, #model-chip i { display: none; } }
 .send { width: 32px; height: 32px; padding: 0; justify-content: center; border-radius: calc(9px * var(--rk)); font-size: 16px; }
 .send.stop { background: var(--primary); color: var(--primary-fg); }
+.compact { width: 32px; height: 32px; padding: 0; justify-content: center; border-radius: calc(9px * var(--rk)); font-size: 14px; background: var(--surface-2); color: var(--fg-2); border: 1px solid var(--border); }
+.compact:hover { background: var(--hover); color: var(--fg); border-color: var(--fg-2); }
 #attachments { display: flex; flex-wrap: wrap; gap: 6px; }
 #attachments:not(:empty) { margin-bottom: 8px; }
 .attachment { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 3px; border: 1px solid var(--border); border-radius: calc(8px * var(--rk)); font-size: 12px; max-width: 220px; background: var(--surface-2); }
@@ -696,7 +698,7 @@ input.effort-range { -webkit-appearance: none; appearance: none; width: 100%; he
   .tab-close { min-width: 40px; min-height: 40px; margin: 0 -4px 0 -8px; }
   .session-more { min-width: 40px; }
   .chip { min-height: 40px; min-width: 40px; justify-content: center; }
-  #send, #stop { min-width: 40px; justify-content: center; }
+  #send, #stop, #compact { min-width: 40px; justify-content: center; }
   input:not([type=checkbox]):not([type=range]):not([type=color]), select, textarea, #input, .field { font-size: 16px; min-height: 40px; }
   #input { min-height: 28px; }
   input.switch { width: 44px; height: 26px; }

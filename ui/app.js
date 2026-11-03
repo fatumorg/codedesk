@@ -74,6 +74,7 @@ const App = {
     input.placeholder = tab.suggestion ? `${tab.suggestion}   (Tab to use)` : `Ask ${agentName} to build, fix or explain something`
     $('#send').hidden = tab.busy && !input.value.trim()
     $('#stop').hidden = !tab.busy || !!input.value.trim()
+    $('#compact').hidden = !tab.live || !tab.sessionId
     $('#to-bottom').classList.toggle('busy', tab.busy)
     renderChips(tab)
     renderStatus(tab)
@@ -1424,7 +1425,7 @@ function openSettings(section = 'appearance') {
       row('Cheaper model near the limit', select('saverModel', [['', 'Off'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']]), 'Switches open conversations to this model and low effort when the limit is almost reached. The next message re-reads the whole conversation once, so very long conversations save less.'),
       row('Subagent model', select('subagentModel', [['', 'Same as conversation'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']], restartIdleTabs), 'Skills that choose a subagent model themselves still win.'),
       row('Allow subagents', toggle('allowSubagents', restartIdleTabs), 'Off stops Claude from starting subagents, which each use their own context.'),
-      row('Compact earlier', select('compactAt', [['', 'Default'], ['50', '50%'], ['60', '60%'], ['70', '70%'], ['80', '80%']], restartIdleTabs), 'Shorter context means less usage per message.'),
+      row('Compact earlier', select('compactAt', [['', 'Off'], ['50', '50%'], ['60', '60%'], ['70', '70%'], ['80', '80%']], restartIdleTabs), 'Compacts the conversation when context hits this threshold, freeing the autocompact buffer (~17k tokens) for new messages. Set a threshold for local models; keep Off for Claude conversations.'),
       row('Step limit per message', select('maxTurns', [['', 'Unlimited'], ['10', '10'], ['25', '25'], ['50', '50'], ['100', '100']], restartIdleTabs)),
       el('div', 'muted small', 'Applies from the next message.'),
       el('div', 'row', button('Use recommended savings', () => { saveSettings({ saverModel: 'sonnet', subagentModel: 'haiku', compactAt: '70' }); restartIdleTabs(); show('usage') }, '', 'gauge')),
@@ -1569,6 +1570,7 @@ App.chatEl.addEventListener('scroll', () => {
 $('#to-bottom').onclick = () => App.active.scroll(true)
 $('#send').onclick = send
 $('#stop').onclick = () => api.control(App.active.id, 'interrupt')
+$('#compact').onclick = () => App.active.send('/compact')
 $('#attach').onclick = () => $('#file').click()
 $('#file').onchange = e => { addFiles([...e.target.files]); e.target.value = '' }
 $('#mention').onclick = () => { App.insertText('@'); updateSuggest() }
