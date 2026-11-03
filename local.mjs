@@ -25,10 +25,19 @@ export function serverArgs(cfg, { port = LOCAL_PORT, key }) {
   return [
     ...args, '--alias', alias, '--host', '127.0.0.1', '--port', String(port), '--api-key', key,
     ...ctx, '-np', '1', '--no-mmproj-offload', '-fa', 'on', '-ctk', 'q4_0', '-ctv', 'q4_0', '--jinja', '--cache-reuse', '256',
-    ...(/mtp/i.test(alias) ? ['--spec-type', 'draft-mtp', '-ctkd', 'q4_0', '-ctvd', 'q4_0'] : []),
+    ...(/mtp/i.test(cfg.source) ? ['--spec-type', 'draft-mtp', '-ctkd', 'q4_0', '-ctvd', 'q4_0'] : []),
     ...String(cfg.args || '').split(/\s+/).filter(Boolean),
   ]
 }
+
+export const aliasOf = src => { try { return modelSource(src).alias } catch { return null } }
+export const pickHosted = (hosted, id) => (hosted || []).find(h => aliasOf(h.source) === id) || hosted?.[0]
+
+export const localOverrides = (off = {}) => ({
+  enabledPlugins: Object.fromEntries((off.plugins || []).map(id => [id, false])),
+  skillOverrides: Object.fromEntries((off.skills || []).map(name => [name, 'off'])),
+  deniedMcpServers: (off.mcp || []).map(serverName => ({ serverName })),
+})
 
 export function localEnv({ url, key }, model, ctx) {
   return {

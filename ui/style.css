@@ -577,6 +577,9 @@ input.effort-range { -webkit-appearance: none; appearance: none; width: 100%; he
 .setting-text { display: grid; gap: 2px; min-width: 0; }
 .settings-pane .kv { margin: 4px 0 8px; }
 .settings-pane .row { margin-top: 10px; gap: 8px; }
+.local-model { padding: 12px; border: 1px solid var(--border); border-radius: calc(10px * var(--rk)); background: var(--surface); }
+.local-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stack.tight { gap: 4px; }
 .local-log { white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; margin: 0; padding: 8px 10px; border-radius: calc(7px * var(--rk)); background: var(--surface-2); }
 .css-box { min-height: 220px; resize: vertical; margin-top: 8px; font-size: 12.5px; }
 .segmented { display: inline-flex; padding: 2px; border-radius: calc(9px * var(--rk)); background: var(--surface-2); border: 1px solid var(--border); flex-shrink: 0; }
@@ -669,6 +672,7 @@ input.effort-range { -webkit-appearance: none; appearance: none; width: 100%; he
   .settings-pane { padding: 14px 16px 20px; }
   .settings-pane .setting { flex-direction: column; align-items: stretch; gap: 8px; }
   .settings-pane .setting select, .settings-pane .setting .field { width: 100%; }
+  .local-grid { grid-template-columns: 1fr; }
   .device-row { grid-template-columns: minmax(0, 1fr) auto; }
   .device-row .small { grid-column: 1; grid-row: 2; }
   .device-row button { grid-column: 2; grid-row: 1 / span 2; }

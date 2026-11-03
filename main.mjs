@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
 import { createDevices, createHub, createRemoteServer, createShared, parseTailscale, pickShared } from './remote.mjs'
-import { forLlama, isLocal, LOCAL_PORT, localEnv, localId, modelSource, parseModels, serverArgs } from './local.mjs'
+import { aliasOf, forLlama, isLocal, LOCAL_PORT, localEnv, localId, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from './local.mjs'
 import http from 'node:http'
 import { Readable } from 'node:stream'
 
@@ -124,9 +124,9 @@ function ensureLlama(cfg) {
   return me.ready
 }
 
-async function localTarget(cfg = {}) {
+async function localTarget(cfg = {}, id) {
   if (cfg.mode !== 'connect') {
-    await ensureLlama(cfg)
+    await ensureLlama(pickHosted(cfg.hosted, id) || {})
     return { url: `http://127.0.0.1:${LOCAL_PORT}`, key: localKey, ctx: llama?.ctx }
   }
   if (!/^https?:\/\//.test(cfg.url || '')) throw new Error('Set the local model server address in Settings → Local model')
@@ -165,7 +165,8 @@ async function viaProxy(target) {
 
 async function localModels(cfg = {}) {
   if (cfg.mode !== 'connect') {
-    try { return parseModels({ data: [{ id: modelSource(cfg.source).alias }] }, 'Hosted by Codedesk') } catch { return [] }
+    const hosted = (cfg.hosted || []).map(h => ({ id: aliasOf(h.source), ctx: +h.ctx || null, source: h.source })).filter(h => h.id)
+    return parseModels({ data: hosted }, 'Hosted by Codedesk').map((m, i) => ({ ...m, ctx: hosted[i].ctx, source: hosted[i].source }))
   }
   if (!/^https?:\/\//.test(cfg.url || '')) return []
   const r = await fetch(cfg.url.replace(/\/+$/, '') + '/v1/models', { headers: cfg.key ? { authorization: `Bearer ${cfg.key}` } : {}, signal: AbortSignal.timeout(4000) }).catch(() => null)
@@ -180,7 +181,7 @@ handle('localStatus', async (_, cfg) => {
     log: localLog.slice(-8), models: await localModels(cfg),
   }
 })
-handle('localStart', async (_, cfg) => { await ensureLlama(cfg) })
+handle('localStart', async (_, cfg, id) => { await ensureLlama(pickHosted(cfg.hosted, id) || {}) })
 handle('localStop', () => stopLlama())
 
 const storePath = () => path.join(app.getPath('userData'), 'agy-sessions.json')
@@ -335,7 +336,7 @@ async function startSession(client, tab, opts) {
   if (!existsSync(cwd)) return client.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
   if (isGemini(model)) return startGeminiSession(client, tab, opts)
   const local = isLocal(model)
-  const target = local && await viaProxy(await localTarget(opts.local))
+  const target = local && await viaProxy(await localTarget(opts.local, localId(model)))
   const accountEnv = local ? localEnv(target, localId(model), target.ctx) : await accounts().env(opts.account)
   restartTab(client, tab)
   const key = crypto.randomUUID()
@@ -374,7 +375,7 @@ async function startSession(client, tab, opts) {
       tools: { type: 'preset', preset: 'claude_code' },
       ...saver,
       ...(local && { disallowedTools: [...(saver.disallowedTools || []), 'Workflow', 'ScheduleWakeup', 'ReportFindings', 'ListAgents'] }),
-      ...(local && { settings: { env: accountEnv } }),
+      ...(local && { settings: { env: accountEnv, ...localOverrides(opts.local?.off) } }),
       settingSources: ['user', 'project', 'local'],
       stderr: line => send('claude:stderr', { line }),
       canUseTool: (toolName, input, { signal, suggestions, decisionReason, title }) =>
@@ -550,6 +551,47 @@ handle('git', (_, cwd, args) => run('git', args, { cwd }))
 handle('runShell', (_, cwd, command) =>
   run(win32 ? 'powershell.exe' : process.env.SHELL || '/bin/sh', win32 ? ['-NoProfile', '-Command', command] : ['-c', command], { cwd }))
 handle('cli', (_, args) => run(claudePath || 'claude', args, { timeout: 600000 }))
+const readJson = f => fs.readFile(f, 'utf8').then(JSON.parse, () => ({}))
+const field = (text, key) => (text.match(new RegExp(`^${key}:[ \t]*(.*)$`, 'm'))?.[1] || '').trim().replace(/^["']|["']$|^[>|]-?$/g, '')
+async function skillsIn(dir, prefix, own) {
+  const names = await fs.readdir(dir).catch(() => [])
+  return (await Promise.all(names.map(async n => {
+    const text = await fs.readFile(path.join(dir, n, 'SKILL.md'), 'utf8').catch(() => null)
+    return text && { name: prefix + (field(text, 'name') || n), description: field(text, 'description'), source: prefix ? prefix.slice(0, -1) : own, dir: own && path.join(dir, n) }
+  }))).filter(Boolean)
+}
+const userSettings = () => path.join(claudeFiles(homedir(), process.env).dir, 'settings.json')
+handle('extensions', async (_, cwd) => {
+  const files = claudeFiles(homedir(), process.env)
+  const [list, cfg, mcpJson, user] = await Promise.all([
+    run(claudePath || 'claude', ['plugin', 'list', '--json']).then(r => JSON.parse(r.stdout)).catch(() => []),
+    readJson(files.config), cwd ? readJson(path.join(cwd, '.mcp.json')) : {}, readJson(userSettings())])
+  const plugins = [...list.reduce((m, p) => m.set(p.id, { id: p.id, enabled: m.get(p.id)?.enabled || p.enabled, path: p.installPath }), new Map()).values()]
+  const skills = (await Promise.all([
+    skillsIn(path.join(files.dir, 'skills'), '', 'user'),
+    cwd ? skillsIn(path.join(cwd, '.claude/skills'), '', 'project') : [],
+    ...plugins.filter(p => p.enabled && p.path).map(p => skillsIn(path.join(p.path, 'skills'), p.id.split('@')[0] + ':')),
+  ])).flat()
+  const mcp = [['user', cfg.mcpServers], ['local', cfg.projects?.[cwd]?.mcpServers], ['project', mcpJson.mcpServers]]
+    .flatMap(([scope, o]) => Object.keys(o || {}).map(name => ({ name, scope })))
+  return { plugins: plugins.map(({ id, enabled }) => ({ id, enabled })), mcp, skills, skillOverrides: user.skillOverrides || {} }
+})
+handle('setSkill', async (_, name, on) => {
+  const file = userSettings()
+  const s = JSON.parse(await fs.readFile(file, 'utf8').catch(e => e.code === 'ENOENT' ? '{}' : Promise.reject(e)))
+  const { [name]: _drop, ...rest } = s.skillOverrides || {}
+  s.skillOverrides = on ? rest : { ...rest, [name]: 'off' }
+  if (!Object.keys(s.skillOverrides).length) delete s.skillOverrides
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, JSON.stringify(s, null, 2) + '\n')
+})
+handle('deleteSkill', async (_, dir) => {
+  const parent = path.dirname(path.resolve(dir)), owner = path.dirname(parent)
+  const inClaude = owner === claudeFiles(homedir(), process.env).dir || path.basename(owner) === '.claude'
+  if (path.basename(parent) !== 'skills' || !inClaude || !existsSync(path.join(dir, 'SKILL.md'))) throw new Error('Not a skill folder')
+  if ((await fs.lstat(dir)).isSymbolicLink()) await fs.unlink(dir)
+  else await shell.trashItem(dir)
+})
 let accountStore
 const accounts = () => (accountStore ||= createAccounts(claudeFiles(homedir(), process.env), path.join(app.getPath('userData'), 'accounts')))
 handle('accounts', () => accounts().list())

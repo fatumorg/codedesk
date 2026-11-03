@@ -489,7 +489,7 @@ class Tab {
     const models = App.local?.models || []
     const m = (models.find(x => x.value === settings.localFallbackModel) || models[0])?.value
     if (!m) return false
-    const room = App.local?.ctx || +settings.localCtx || 32768, used = this.context?.totalTokens || 0
+    const room = (App.local?.alias && 'local:' + App.local.alias === m && App.local.ctx) || models.find(x => x.value === m)?.ctx || 32768, used = this.context?.totalTokens || 0
     if (used > room / 2) return this.handOff(m, used, room)
     const prev = this.model
     setModel(this, m)

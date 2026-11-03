@@ -523,9 +523,10 @@ function renderChips(tab) {
   $('#fast-chip').classList.toggle('on', tab.fast)
 }
 
-function restartIdleTabs() {
-  for (const t of App.tabs.values()) if (t.live && !t.busy && !t.permissions && engineOf(t.model) === 'claude') { api.stop(t.id); t.live = false }
+function stopIdleTabs(engine) {
+  for (const t of App.tabs.values()) if (t.live && !t.busy && !t.permissions && engineOf(t.model) === engine) { api.stop(t.id); t.live = false }
 }
+const restartIdleTabs = () => stopIdleTabs('claude')
 
 function setMode(tab, value) {
   tab.mode = value
@@ -533,10 +534,10 @@ function setMode(tab, value) {
   App.tabChanged(tab)
 }
 function setModel(tab, value) {
-  const prev = engineOf(tab.model)
+  const prev = tab.model
   tab.model = value
   if (tab.live) {
-    if (prev !== engineOf(value)) tab.start()
+    if (engineOf(prev) !== engineOf(value) || (engineOf(value) === 'local' && prev !== value && settings.localMode !== 'connect')) tab.start()
     else api.control(tab.id, 'setModel', value).catch(e => toast(String(e.message || e), 'err'))
   }
   tab.savePrefs()
@@ -1265,10 +1266,11 @@ function openSettings(section = 'appearance') {
   }
 
   const LOCAL_PRESETS = [
-    ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 3-bit with MTP, 9.7 GB, for 16 GB GPUs'],
+    ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 3-bit with MTP, 9.7 GB, strongest for 16 GB GPUs'],
+    ['unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf', 'Qwen3.6 35B-A3B MoE with MTP, 14.1 GB, 3B active so several times faster'],
     ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 3.5-bit with MTP, 11.3 GB, for 20 GB GPUs or more'],
     ['ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf', 'Qwen3.8 27B, GSQ-RCO 2.75-bit with MTP, 8.9 GB, for 12 GB GPUs'],
-    ['unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL', 'Qwen3.6 35B-A3B MoE, 20.8 GB, spills experts to RAM'],
+    ['unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf', 'Qwen3.6 35B-A3B MoE with MTP, 12.6 GB, for 12 GB GPUs'],
   ]
   const localPane = () => {
     const box = el('div', 'stack')
@@ -1292,19 +1294,77 @@ function openSettings(section = 'appearance') {
     }
     const presets = el('datalist', '', ...LOCAL_PRESETS.map(([v, l]) => Object.assign(el('option', '', l), { value: v })))
     presets.id = 'local-presets'
-    const source = field('localSource', 'user/repo/file.gguf, user/repo:QUANT or /path/to/model.gguf')
-    source.setAttribute('list', presets.id)
+    const setHosted = list => { saveSettings({ localHosted: list }); refresh() }
+    const hostedField = (i, key, label, placeholder, opts = {}) => {
+      const f = el('input', 'field mono')
+      Object.assign(f, { value: settings.localHosted[i][key] || '', placeholder, spellcheck: false, ...opts })
+      f.setAttribute('aria-label', label)
+      f.onchange = () => setHosted(settings.localHosted.map((h, j) => j === i ? { ...h, [key]: f.type === 'number' ? (+f.value || '') : f.value.trim() } : h))
+      return el('label', 'stack tight', el('span', 'muted small', label), f)
+    }
+    const hostedRow = (st, h, i) => {
+      const m = (st.models || []).find(x => x.source === h.source)
+      const id = m?.value.slice(6)
+      const state = id && st.alias === id ? st.state : 'stopped'
+      const source = hostedField(i, 'source', 'Model', 'user/repo/file.gguf, user/repo:QUANT or /path/to/model.gguf')
+      source.querySelector('input').setAttribute('list', presets.id)
+      return el('div', 'local-model stack',
+        el('div', 'row', el('b', 'grow', m ? localModels().find(x => x.value === m.value)?.displayName || id : 'New model'),
+          state !== 'stopped' ? el('span', 'status-pill ' + (state === 'ready' ? 'connected' : 'pending'), state === 'ready' ? 'Running' : 'Loading') : null,
+          id && state === 'stopped' ? button('Start', e => { e.currentTarget.disabled = true; api.localStart(localConfig(), id).catch(err => toast(String(err.message || err), 'err')); setTimeout(refresh, 500) }, 'sm', 'play') : null,
+          id && state !== 'stopped' ? button('Stop', async () => { await api.localStop(); refresh() }, 'ghost sm', 'stop') : null,
+          iconButton('trash', 'Remove model', () => setHosted(settings.localHosted.filter((_, j) => j !== i)))),
+        source,
+        el('div', 'local-grid',
+          hostedField(i, 'ctx', 'Context size', 'Auto', { type: 'number', min: 4096, step: 4096 }),
+          hostedField(i, 'args', 'Extra llama.cpp flags', '--spec-type ngram-mod')),
+        ...(m ? [el('div', 'local-grid',
+          el('label', 'stack tight', el('span', 'muted small', 'Name in the model menu'), naming(m, 'name', m.displayName)),
+          el('label', 'stack tight', el('span', 'muted small', 'Description'), naming(m, 'description', m.description)))] : []))
+    }
+    const offBox = el('div', 'stack')
+    const drawOff = x => {
+      const off = settings.localOff
+      const flip = (kind, names, on) => {
+        const cur = new Set(off[kind] || [])
+        for (const n of names) on ? cur.delete(n) : cur.add(n)
+        saveSettings({ localOff: { ...off, [kind]: [...cur] } })
+        stopIdleTabs('local')
+        drawOff(x)
+      }
+      const group = (kind, title, items) => {
+        if (!items.length) return []
+        const allOn = items.every(it => !(off[kind] || []).includes(it.name))
+        return [el('div', 'row', el('div', 'panel-sub grow', `${title} (${items.length})`),
+          button(allOn ? 'Turn all off' : 'Turn all on', () => flip(kind, items.map(it => it.name), !allOn), 'ghost sm')),
+          ...items.map(it => {
+            const c = el('input', 'switch'); c.type = 'checkbox'; c.checked = !(off[kind] || []).includes(it.name)
+            c.setAttribute('aria-label', `${it.name} in local conversations`)
+            c.onchange = () => flip(kind, [it.name], c.checked)
+            return el('label', 'setting', el('div', 'setting-text', el('div', 'setting-label mono', it.name), it.detail ? el('div', 'muted small clamp', it.detail) : null), c)
+          })]
+      }
+      const offPlugins = new Set((off.plugins || []).map(id => id.split('@')[0]))
+      offBox.replaceChildren(
+        el('div', 'setting-text', el('div', 'setting-label', 'Leave out in local conversations'),
+          el('div', 'muted small', 'Every plugin, MCP server and skill takes room in a local model\'s context. What you turn off here stays on in Claude conversations.')),
+        ...group('plugins', 'Plugins', x.plugins.filter(p => p.enabled).map(p => ({ name: p.id }))),
+        ...group('mcp', 'MCP servers', x.mcp.map(s => ({ name: s.name, detail: s.scope }))),
+        ...group('skills', 'Skills', x.skills.filter(k => x.skillOverrides[k.name] !== 'off' && !offPlugins.has(k.source)).map(k => ({ name: k.name, detail: k.description }))))
+    }
+    api.extensions(tab?.cwd).then(drawOff, () => offBox.replaceChildren(el('div', 'muted small', 'Could not list plugins, MCP servers and skills.')))
     const draw = st => {
       App.local = st
       const host = settings.localMode !== 'connect'
       const models = localModels().map(m => [m.value, m.displayName || m.value])
       box.replaceChildren(
         row('Where the model runs', segmented('localMode', [['host', 'Host here', 'hard-drives'], ['connect', 'Connect to a server', 'plugs']], refresh),
-          host ? 'Codedesk starts llama.cpp for you when a conversation uses the local model.' : 'Any server that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.'),
+          host ? 'Codedesk starts llama.cpp for you when a conversation uses a local model. One model runs at a time; picking another one swaps it.' : 'Any server that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.'),
         ...(host ? [
-          Object.assign(row('Model', el('div', 'stack', source, presets), 'Pick a suggestion or paste a Hugging Face repo or a .gguf path. It downloads on first start.'), { className: 'setting wide' }),
-          row('Context size', field('localCtx', 'Auto', { type: 'number', min: 4096, step: 4096 }), 'Tokens the model can see. Auto picks the most that fits with the whole model on the GPU, at least 32k. A bigger number moves part of the model to RAM, which is several times slower, and it has to fit in RAM.'),
-          row('Extra llama.cpp flags', field('localArgs', '--spec-type ngram-mod'), 'Added after the defaults: fit to GPU memory, one slot, flash attention, 8-bit KV cache, prompt cache reuse, vision on the CPU, MTP speculative decoding when the model has a head for it.'),
+          el('div', 'setting-text', el('div', 'setting-label', 'Models'),
+            el('div', 'muted small', 'Pick a suggestion or paste a Hugging Face repo or a .gguf path. It downloads on first start. Context size Auto picks the most that fits with the whole model on the GPU. Extra flags go after the defaults: one slot, flash attention, 4-bit KV cache, prompt cache reuse, MTP when the model has it.')),
+          ...settings.localHosted.map((h, i) => hostedRow(st, h, i)), presets,
+          el('div', 'row', button('Add model', () => setHosted([...settings.localHosted, { source: '' }]), 'ghost', 'plus')),
           el('div', 'kv',
             el('span', '', 'llama.cpp'), el('span', 'mono', st.path || 'Not installed'),
             el('span', '', 'Devices'), el('span', 'mono', (st.devices || []).join(', ') || 'CPU only'),
@@ -1314,13 +1374,12 @@ function openSettings(section = 'appearance') {
           row('Server address', field('localUrl', 'http://127.0.0.1:11434')),
           row('API key', field('localKey', 'Leave empty if the server has none', { type: 'password' })),
           row('Models found', el('span', 'mono', models.map(m => m[1]).join(', ') || 'None, check the address')),
+          ...(st.models || []).map(m => row(`Name for ${m.displayName}`, el('div', 'stack', naming(m, 'name', m.displayName), naming(m, 'description', m.description)), 'Shown in the model menu. Leave empty to use the default.')),
         ]),
-        ...(st.models || []).map(m => row(`Name for ${m.displayName}`, el('div', 'stack', naming(m, 'name', m.displayName), naming(m, 'description', m.description)), 'Shown in the model menu. Leave empty to use the default.')),
-        row('Use when every Claude account is at its limit', toggle('localFallback'), 'Tries your other accounts first, then moves the conversation to this model and continues.'),
+        row('Use when every Claude account is at its limit', toggle('localFallback'), 'Tries your other accounts first, then moves the conversation to a local model and continues.'),
         ...(models.length > 1 ? [row('Model to switch to', select('localFallbackModel', [['', 'First available'], ...models]))] : []),
+        offBox,
         el('div', 'row wrap',
-          host && st.state === 'stopped' ? button('Start now', async e => { e.currentTarget.disabled = true; api.localStart(localConfig()).catch(err => toast(String(err.message || err), 'err')); setTimeout(refresh, 500) }, 'primary', 'play') : null,
-          host && st.state !== 'stopped' ? button('Stop', async () => { await api.localStop(); refresh() }, 'ghost', 'stop') : null,
           button('Refresh', refresh, 'ghost', 'arrows-clockwise'),
           button('Use in this tab', () => { m.close(); useLocal(tab) }, '', 'hard-drives')),
       )

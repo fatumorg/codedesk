@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
-import { forLlama, isLocal, localEnv, localId, modelSource, parseModels, serverArgs } from '../local.mjs'
+import { aliasOf, forLlama, isLocal, localEnv, localId, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from '../local.mjs'
 
 test('model sources map to llama.cpp download or file flags', () => {
   assert.deepEqual(modelSource('ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf'),
@@ -24,6 +24,22 @@ test('server args keep the key, bind to localhost and add MTP only for MTP model
   assert.ok(!b.includes('-c'))
   assert.equal(b[b.indexOf('-fitc') + 1], '32768')
   assert.ok(!b.includes('draft-mtp'))
+  assert.ok(serverArgs({ source: 'unsloth/Q-MTP-GGUF/Q-UD-IQ3_XXS.gguf' }, { key: 'k' }).includes('draft-mtp'))
+})
+
+test('a local model id picks its hosted entry, falling back to the first', () => {
+  const hosted = [{ source: 'a/b-GGUF/one.gguf', ctx: 1 }, { source: '' }, { source: 'c/d-GGUF/two.gguf', ctx: 2 }]
+  assert.equal(pickHosted(hosted, 'two').ctx, 2)
+  assert.equal(pickHosted(hosted, 'nope').ctx, 1)
+  assert.equal(pickHosted(undefined, 'two'), undefined)
+  assert.equal(aliasOf(''), null)
+})
+
+test('local exclusions become flag settings that turn plugins, skills and MCP servers off', () => {
+  assert.deepEqual(localOverrides({ plugins: ['p@m'], skills: ['s', 'p:k'], mcp: ['gh'] }), {
+    enabledPlugins: { 'p@m': false }, skillOverrides: { s: 'off', 'p:k': 'off' }, deniedMcpServers: [{ serverName: 'gh' }],
+  })
+  assert.deepEqual(localOverrides(undefined), { enabledPlugins: {}, skillOverrides: {}, deniedMcpServers: [] })
 })
 
 test('local env routes every Claude Code model slot to the local model', () => {

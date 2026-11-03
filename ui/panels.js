@@ -418,7 +418,7 @@ const Panels = {
     const wrap = el('div', 'stack')
     wrap.append(el('div', 'panel-empty', 'Loading plugins…'))
     setTimeout(async () => {
-      const r = await api.cli(['plugin', 'list', '--available', '--json'])
+      const [r, ext] = await Promise.all([api.cli(['plugin', 'list', '--available', '--json']), api.extensions(tab?.cwd).catch(() => null)])
       let data
       try { data = JSON.parse(r.stdout) } catch { wrap.replaceChildren(el('div', 'panel-empty', r.stderr || 'Could not list plugins.')); return }
       const after = async (res, msg) => {
@@ -444,8 +444,28 @@ const Panels = {
             { label: 'Uninstall', icon: 'trash', danger: true, run: async () => after(await api.cli(['plugin', 'uninstall', p.id]), `Uninstalled ${p.id}`) },
           ])), toggle)
       })
+      const skillDone = async (msg, err) => {
+        toast(err ? String(err.message || err).replace(/^Error invoking remote method '\w+': (Error: )?/, '') : msg, err ? 'err' : '')
+        if (tab?.live) await api.control(tab.id, 'reloadSkills').catch(() => {})
+        this.render()
+      }
+      const skills = (ext?.skills || []).map(k => {
+        const toggle = el('input'); toggle.type = 'checkbox'; toggle.className = 'switch'; toggle.checked = ext.skillOverrides[k.name] !== 'off'
+        toggle.setAttribute('aria-label', `Use ${k.name}`)
+        toggle.onchange = () => api.setSkill(k.name, toggle.checked).then(() => skillDone(`${toggle.checked ? 'Turned on' : 'Turned off'} ${k.name}`), e => skillDone('', e))
+        return el('div', 'plugin-row',
+          el('div', 'grow', el('b', '', k.name), el('span', 'muted small', ' ' + k.source), el('div', 'muted small clamp', k.description)),
+          k.dir ? iconButton('dots-three', 'More', e => menu(e.currentTarget, [
+            { label: 'Delete skill', icon: 'trash', danger: true, run: async () => {
+              if (!await confirmDialog('Delete skill?', `Moves ${k.dir} to the trash. A linked skill only loses its link.`, 'Delete', true)) return
+              api.deleteSkill(k.dir).then(() => skillDone(`Deleted ${k.name}`), e => skillDone('', e))
+            } },
+          ])) : null, toggle)
+      })
       renderAvail()
       wrap.replaceChildren(el('div', 'panel-sub', icon('puzzle-piece'), `Installed (${installed.length})`), ...installed,
+        ...(skills.length ? [el('div', 'panel-sub', icon('lightning'), `Skills (${skills.length})`),
+          el('p', 'muted small', 'Off hides a skill from Claude and from the / menu in every conversation. Skills from a plugin go away when you turn the plugin off.'), ...skills] : []),
         el('div', 'panel-sub', icon('storefront'), 'Marketplace'), search, avail)
     })
     return wrap

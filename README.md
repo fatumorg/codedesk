@@ -160,12 +160,16 @@ systemd.user.services.codedesk = {
 Run a model on your own GPU with every Codedesk feature: tools, edits, permissions, skills, subagents, rewind and fork. Claude Code stays the agent and the local model becomes its brain.
 
 1. Install llama.cpp with GPU support. On NixOS with an NVIDIA card: `(llama-cpp.override { cudaSupport = true; })`.
-2. Open **Settings → Local model**. **Host here** lets Codedesk start `llama-server` itself. Pick a suggested model or paste a Hugging Face repo or a `.gguf` path. It downloads on first start.
-3. Pick it from the model menu, next to Claude and Gemini.
+2. Open **Settings → Local model**. **Host here** lets Codedesk start `llama-server` itself. Add as many models as you like: pick a suggestion or paste a Hugging Face repo or a `.gguf` path. Each one downloads on first start and gets its own context size, flags, name and description.
+3. Pick one from the model menu, next to Claude and Gemini. One hosted model runs at a time, so picking another swaps it.
+
+Two models are suggested for a 16 GB GPU. Qwen3.8 27B (GSQ-RCO 3-bit) is the strongest. Qwen3.6 35B-A3B is a mixture of experts with 3B active parameters: on an RTX 5070 Ti it writes about 120 tokens a second with a 128k context, against 15 to 25 for the 27B.
 
 **Connect to a server** works with anything that speaks the Anthropic Messages API: llama.cpp, Ollama, LM Studio or vLLM.
 
 Codedesk tunes both sides. llama.cpp fits the model to your GPU, picks the largest context that keeps every layer on it, and moves MoE experts to RAM when VRAM runs out. It also runs flash attention, a 4-bit KV cache (about twice the context of 8-bit), prompt cache reuse, and MTP speculative decoding when the model ships an MTP head. Claude Code gets the real context size so it compacts in time, a reply limit sized to that context, and no tools a local model has no use for. Its per-request header is turned off so the prompt cache survives between messages.
+
+**Leave out in local conversations** (same pane) turns plugins, MCP servers and skills off for local models only, so they don't take up the model's context. Claude conversations keep them.
 
 When every Claude account is at its limit, Codedesk moves the conversation to the local model and continues (**Settings → Usage**, on by default). The **Back to** button on the notice switches it back. A conversation too long for the local model's context continues in a new tab instead, starting from a summary of where it stood.
 
@@ -217,7 +221,7 @@ Pick a Gemini model to run the tab through the Antigravity CLI (`agy`) with your
 <details>
 <summary><b>🪟 Panels and editor</b></summary>
 
-- **Files**, **Changes** (git status and diffs, discard, review or commit with Claude), **Terminal**, **Preview** (files, HTML/SVG/diagram artifacts, localhost dev servers), **Tasks**, **Context** usage, **MCP** servers (status, sign in, toggle, add/remove), **Plugins** (install, enable, update, marketplaces).
+- **Files**, **Changes** (git status and diffs, discard, review or commit with Claude), **Terminal**, **Preview** (files, HTML/SVG/diagram artifacts, localhost dev servers), **Tasks**, **Context** usage, **MCP** servers (status, sign in, toggle, add/remove), **Plugins** (install, enable, update, marketplaces) and **Skills** (turn off or delete).
 - **Editor:** editable, highlighted view with line numbers. `Ctrl+S` saves, `Tab`/`Shift+Tab` indent.
 - **Agents:** browse subagents, mention them, or create one in `.claude/agents/`.
 - **Rendering:** Markdown, syntax highlighting, LaTeX math, Mermaid diagrams.
