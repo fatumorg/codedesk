@@ -25,6 +25,11 @@ test('server args keep the key, bind to localhost and add MTP only for MTP model
   assert.equal(b[b.indexOf('-fitc') + 1], '32768')
   assert.ok(!b.includes('draft-mtp'))
   assert.ok(serverArgs({ source: 'unsloth/Q-MTP-GGUF/Q-UD-IQ3_XXS.gguf' }, { key: 'k' }).includes('draft-mtp'))
+  // UD-IQ3_S quant on a short source string without "mtp" still triggers draft-mtp
+  assert.ok(serverArgs({ source: 'unsloth/Q-M:UD-IQ3_S' }, { key: 'k' }).includes('draft-mtp'))
+  assert.ok(serverArgs({ source: 'unsloth/Q:UD-IQ2_S' }, { key: 'k' }).includes('draft-mtp'))
+  assert.ok(serverArgs({ source: 'unsloth/Q:UD-Q2_K_XL' }, { key: 'k' }).includes('draft-mtp'))
+  assert.ok(!serverArgs({ source: 'orcarouter/Q:Q3_K_M' }, { key: 'k' }).includes('draft-mtp'))
 })
 
 test('a local model id picks its hosted entry, falling back to the first', () => {

@@ -25,7 +25,7 @@ export function serverArgs(cfg, { port = LOCAL_PORT, key }) {
   return [
     ...args, '--alias', alias, '--host', '127.0.0.1', '--port', String(port), '--api-key', key,
     ...ctx, '-np', '1', '--no-mmproj-offload', '-fa', 'on', '-ctk', 'q4_0', '-ctv', 'q4_0', '--jinja', '--cache-reuse', '256',
-    ...(/mtp/i.test(cfg.source) ? ['--spec-type', 'draft-mtp', '-ctkd', 'q4_0', '-ctvd', 'q4_0'] : []),
+    ...(/mtp|UD-IQ3_XXS|UD-IQ3_S|UD-IQ2_S|UD-Q2_K_XL/i.test(cfg.source) ? ['--spec-type', 'draft-mtp', '-ctkd', 'q4_0', '-ctvd', 'q4_0'] : []),
     ...String(cfg.args || '').split(/\s+/).filter(Boolean),
   ]
 }
