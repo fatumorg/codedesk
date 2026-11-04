@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
-import { aliasOf, forLlama, isLocal, localEnv, localId, localMode, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from '../local.mjs'
+import { aliasOf, forLlama, isLocal, localEnv, localAutoAllows, localId, localMode, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from '../local.mjs'
 
 test('model sources map to llama.cpp download or file flags', () => {
   assert.deepEqual(modelSource('ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf'),
@@ -97,4 +97,12 @@ test('local sessions run auto mode as accept-edits, since the safety classifier 
   assert.equal(localMode('auto'), 'acceptEdits')
   assert.equal(localMode('plan'), 'plan')
   assert.equal(localMode(undefined), 'default')
+})
+
+test('local auto mode approves tools itself but still asks questions and plan approval', () => {
+  assert.ok(localAutoAllows('auto', 'Bash'))
+  assert.ok(!localAutoAllows('auto', 'AskUserQuestion'))
+  assert.ok(!localAutoAllows('auto', 'ExitPlanMode'))
+  assert.ok(!localAutoAllows('acceptEdits', 'Bash'))
+  assert.ok(!localAutoAllows('default', 'Bash'))
 })

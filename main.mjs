@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline'
 import { claudeFiles, createAccounts } from './accounts.mjs'
 import { agyArgs, finishTurn, newTurnState, parseAgyModels, parseLine, translateAgyEvent } from './agy.mjs'
 import { createDevices, createHub, createRemoteServer, createShared, parseTailscale, pickShared } from './remote.mjs'
-import { aliasOf, forLlama, isLocal, LOCAL_PORT, localEnv, localId, localMode, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from './local.mjs'
+import { aliasOf, forLlama, isLocal, LOCAL_PORT, localEnv, localAutoAllows, localId, localMode, localOverrides, modelSource, parseModels, pickHosted, serverArgs } from './local.mjs'
 import http from 'node:http'
 import { Readable } from 'node:stream'
 
@@ -338,13 +338,14 @@ async function startSession(client, tab, opts) {
   if (!existsSync(cwd)) return client.send('claude:error', { tab, error: `Project folder not found: ${cwd}` })
   if (isGemini(model)) return startGeminiSession(client, tab, opts)
   const local = isLocal(model)
-  const permissionMode = local ? localMode(opts.permissionMode) : opts.permissionMode
+  const mode = opts.permissionMode || 'default'
+  const permissionMode = local ? localMode(mode) : mode
   const target = local && await viaProxy(await localTarget(opts.local, localId(model)))
   const accountEnv = local ? localEnv(target, localId(model), target.ctx) : await accounts().env(opts.account)
   restartTab(client, tab)
   const key = crypto.randomUUID()
   const entry = hub.add(key, client, tab, () => stopSession(key))
-  entry.info = { cwd, model, permissionMode: permissionMode || 'default', account: opts.account, effort, local: opts.local }
+  entry.info = { cwd, model, permissionMode: mode, account: opts.account, effort, local: opts.local }
   if (resume && !fork) { entry.sessionId = resume; hub.broadcast('sessions:changed', {}) }
   const inbox = []
   let wake = null
@@ -369,7 +370,7 @@ async function startSession(client, tab, opts) {
       model: (local ? localId(model) : model) || undefined,
       effort: (!local && effort) || undefined,
       additionalDirectories: additionalDirectories?.length ? additionalDirectories : undefined,
-      permissionMode: permissionMode || 'default',
+      permissionMode,
       pathToClaudeCodeExecutable: claudePath,
       includePartialMessages: true,
       promptSuggestions: true,
@@ -382,7 +383,7 @@ async function startSession(client, tab, opts) {
       settingSources: ['user', 'project', 'local'],
       stderr: line => send('claude:stderr', { line }),
       canUseTool: (toolName, input, { signal, suggestions, decisionReason, title }) =>
-        new Promise(resolve => {
+        local && localAutoAllows(entry.info.permissionMode, toolName) ? Promise.resolve({ behavior: 'allow', updatedInput: input }) : new Promise(resolve => {
           const id = crypto.randomUUID()
           pending.set(id, resolve)
           signal.addEventListener('abort', () => { pending.delete(id); entry.pending.delete(id); resolve({ behavior: 'deny', message: 'Aborted' }) })
@@ -394,7 +395,11 @@ async function startSession(client, tab, opts) {
 
   ;(async () => {
     try {
-      for await (const msg of s.q) { if (s.closed) break; send('claude:message', { msg }) }
+      for await (let msg of s.q) {
+        if (s.closed) break
+        if (local && msg.type === 'system' && msg.subtype === 'init') msg = { ...msg, permissionMode: entry.info.permissionMode }
+        send('claude:message', { msg })
+      }
     } catch (e) {
       if (!s.closed) send('claude:error', { error: String(e?.message || e) })
     }
@@ -440,8 +445,8 @@ handle('control', async (client, tab, method, ...args) => {
   }
   if (method === 'setModel') s.entry.info.model = args[0]
   if (method === 'setModel' && isLocal(args[0])) return s.q.setModel(localId(args[0]))
-  if (method === 'setPermissionMode' && isLocal(s.entry.info.model)) args[0] = localMode(args[0])
   if (method === 'setPermissionMode') s.entry.info.permissionMode = args[0]
+  if (method === 'setPermissionMode' && isLocal(s.entry.info.model)) args[0] = localMode(args[0])
   return s.q[method]?.(...args) ?? null
 })
 handle('permit', (client, tab, id, result) => {
