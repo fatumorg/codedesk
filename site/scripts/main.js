@@ -218,15 +218,38 @@
   if (!swatches.length) return;
 
   var root = document.documentElement;
+  var focusedIdx = Array.from(swatches).findIndex(function(s) {
+    return s.getAttribute('aria-checked') === 'true';
+  });
+  if (focusedIdx === -1) focusedIdx = 0;
 
-  swatches.forEach(function(sw) {
+  swatches.forEach(function(sw, i) {
+    sw.setAttribute('tabindex', i === focusedIdx ? '0' : '-1');
     sw.addEventListener('click', function() {
-      swatches.forEach(function(s) { s.setAttribute('aria-checked', 'false'); });
-      sw.setAttribute('aria-checked', 'true');
-      root.style.setProperty('--accent', sw.dataset.color);
-      root.style.setProperty('--accent-soft', sw.dataset.color + '2e');
+      selectSwatch(i);
+    });
+    sw.addEventListener('keydown', function(e) {
+      var next = -1;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % swatches.length;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + swatches.length) % swatches.length;
+      if (e.key === 'Home') next = 0;
+      if (e.key === 'End') next = swatches.length - 1;
+      if (next !== -1) {
+        e.preventDefault();
+        selectSwatch(next);
+        swatches[next].focus();
+      }
     });
   });
+
+  function selectSwatch(idx) {
+    swatches.forEach(function(s, i) {
+      s.setAttribute('aria-checked', i === idx ? 'true' : 'false');
+      s.setAttribute('tabindex', i === idx ? '0' : '-1');
+    });
+    root.style.setProperty('--accent', swatches[idx].dataset.color);
+    root.style.setProperty('--accent-soft', swatches[idx].dataset.color + '2e');
+  }
 })();
 
 // Screenshot gallery overlay

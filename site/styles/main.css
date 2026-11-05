@@ -879,6 +879,11 @@ section h2 {
   transform: scale(1.15);
 }
 
+.swatch:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
 .swatch.active {
   border-color: var(--fg);
   box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--fg);
