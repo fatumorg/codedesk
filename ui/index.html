@@ -18,7 +18,15 @@
   <div id="app">
     <aside id="sidebar">
       <div class="side-top">
-        <div class="brand"><img src="../build/icon.svg" alt=""><span>Codedesk</span></div>
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 512 512" width="22" height="22" aria-hidden="true">
+            <rect x="32" y="32" width="448" height="448" rx="104" fill="#1f1e1c"/>
+            <rect x="33" y="33" width="446" height="446" rx="103" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="2"/>
+            <path d="M150 168 L262 256 L150 344" fill="none" stroke="var(--accent)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="290" y="322" width="96" height="40" rx="20" fill="#f3efe6"/>
+          </svg>
+          <span>Codedesk</span>
+        </div>
         <button class="icon" id="hide-sidebar" title="Hide sidebar (Ctrl+B)" aria-label="Hide sidebar"><i class="ph-bold ph-sidebar-simple"></i></button>
       </div>
       <button id="new-chat" class="primary block"><i class="ph-bold ph-plus"></i><span>New conversation</span></button>
@@ -55,7 +63,12 @@
 
       <div id="chat">
         <div id="welcome">
-          <img class="welcome-mark" src="../build/icon.svg" alt="">
+          <svg class="welcome-mark" viewBox="0 0 512 512" width="56" height="56" aria-hidden="true">
+            <rect x="32" y="32" width="448" height="448" rx="104" fill="#1f1e1c"/>
+            <rect x="33" y="33" width="446" height="446" rx="103" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="2"/>
+            <path d="M150 168 L262 256 L150 344" fill="none" stroke="var(--accent)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="290" y="322" width="96" height="40" rx="20" fill="#f3efe6"/>
+          </svg>
           <h1 class="serif">Codedesk</h1>
           <p class="muted">A desktop workspace for Claude Code. Pick a project folder. Claude reads, edits and runs code in it, with your permission.</p>
           <div class="row center"><button id="welcome-open" class="primary"><i class="ph-bold ph-folder-open"></i><span>Open folder</span></button></div>

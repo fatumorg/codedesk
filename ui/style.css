@@ -115,7 +115,7 @@ body.with-panel #panel-resize { display: block; }
 
 .side-top { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 6px 6px; }
 .brand { display: flex; align-items: center; gap: 9px; font: 500 17px/1 var(--serif); letter-spacing: -.01em; }
-.brand img { width: 22px; height: 22px; }
+.brand .mark { width: 22px; height: 22px; vertical-align: top; }
 .project-switch { justify-content: flex-start; background: transparent; border-color: var(--border); }
 .project-switch span { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .project-switch i:last-child { color: var(--muted); font-size: 12px; }
@@ -185,7 +185,7 @@ body.no-project #chat-head, body.no-project #dock { display: none; }
 .idea:hover { color: var(--fg); box-shadow: 0 2px 8px rgba(0,0,0,.04); }
 
 #welcome { max-width: 860px; margin: 0 auto; padding: 9vh 24px 60px; text-align: center; animation: rise .6s var(--ease) both; }
-.welcome-mark { width: 56px; height: 56px; margin-bottom: 14px; }
+.welcome-mark { width: 56px; height: 56px; margin-bottom: 14px; display: block; }
 #welcome h1 { font-size: 46px; line-height: 1.05; margin: 0 0 10px; }
 #welcome > p { margin: 0 0 22px; font-size: 15px; }
 .label { font: 600 10.5px/1 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 40px 0 12px; text-align: left; }

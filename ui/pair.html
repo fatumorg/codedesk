@@ -12,7 +12,7 @@
     body { display: grid; place-items: center; min-height: 100dvh; padding: 24px; overflow: auto; }
     main { width: min(380px, 100%); display: grid; gap: 18px; padding: 30px 26px 26px; background: var(--surface); border: 1px solid var(--border); border-radius: calc(14px * var(--rk)); box-shadow: var(--shadow); }
     .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
-    .brand img { width: 28px; height: 28px; }
+    .brand .mark { width: 28px; height: 28px; }
     h1 { margin: 0; font-size: 28px; line-height: 1.15; }
     p { margin: 0; }
     form { display: grid; gap: 12px; }
@@ -22,7 +22,7 @@
 </head>
 <body>
   <main>
-    <div class="brand"><img src="/build/icon.svg" alt=""><span>Codedesk</span></div>
+    <div class="brand"><svg class="mark" viewBox="0 0 512 512" width="28" height="28" aria-hidden="true"><rect x="32" y="32" width="448" height="448" rx="104" fill="#1f1e1c"/><rect x="33" y="33" width="446" height="446" rx="103" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="2"/><path d="M150 168 L262 256 L150 344" fill="none" stroke="var(--accent)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/><rect x="290" y="322" width="96" height="40" rx="20" fill="#f3efe6"/></svg><span>Codedesk</span></div>
     <h1 class="serif">Pair this device</h1>
     <p class="muted">Open Codedesk on your PC, go to Settings, Remote, press Pair a device, and type the code here.</p>
     <form id="form" autocomplete="off">
