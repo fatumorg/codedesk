@@ -147,12 +147,124 @@ h3 { font-size: clamp(1.1rem, 2vw, 1.4rem); }
   }
 }
 
+/* Navigation */
+#nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: var(--nav-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: saturate(180%) blur(10px);
+  background: rgba(40, 38, 34, 0.85);
+}
+
+#nav .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 18px;
+  font-family: "Newsreader Variable", Georgia, serif;
+  letter-spacing: -0.02em;
+}
+
+#nav .brand .mark {
+  width: 28px;
+  height: 28px;
+}
+
+#nav .nav-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+#nav .nav-links a {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+#nav .nav-links .github {
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: var(--radius);
+  transition: background 0.2s;
+}
+
+#nav .nav-links .github:hover {
+  background: var(--hover);
+}
+
+#nav .hamburger {
+  display: none;
+}
+
+/* Mobile nav */
+@media (max-width: 767px) {
+  #nav {
+    padding: 0 16px;
+  }
+
+  #nav .hamburger {
+    display: block;
+  }
+
+  #nav .nav-links {
+    display: none;
+    position: fixed;
+    top: var(--nav-height);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    background: var(--surface);
+    z-index: 99;
+  }
+
+  #nav .nav-links a {
+    font-size: 24px;
+    font-family: "Newsreader Variable", Georgia, serif;
+  }
+
+  #nav .nav-links .github {
+    display: flex;
+  }
+
+  #nav .nav-links .btn-primary {
+    font-size: 18px;
+    padding: 14px 36px;
+  }
+
+  #nav.nav-open .nav-links {
+    display: flex;
+  }
+}
+
+/* Desktop nav */
+@media (min-width: 768px) {
+  #nav .nav-links .btn-primary {
+    display: inline-block;
+  }
+}
+
 /* Mobile base */
 @media (max-width: 767px) {
   html { font-size: 15px; }
+  main { padding-top: calc(var(--nav-height) + 24px); }
 }
 
 /* Desktop */
 @media (min-width: 768px) {
-  /* Desktop-only styles go here (overridden by mobile above) */
+  main { padding-top: calc(var(--nav-height) + 32px); }
 }
