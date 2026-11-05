@@ -169,3 +169,100 @@
     };
   }
 })();
+
+// Scroll-triggered reveal animations
+(function() {
+  var reveals = document.querySelectorAll('.reveal');
+  if (!reveals.length) return;
+
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (reducedMotion) {
+    // Show all reveals immediately
+    reveals.forEach(function(el) { el.classList.add('visible'); });
+    return;
+  }
+
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -50px 0px' });
+
+  reveals.forEach(function(el) { observer.observe(el); });
+})();
+
+// Effort slider
+(function() {
+  var slider = document.getElementById('effort-slider');
+  var badge = document.getElementById('model-badge');
+  if (!slider || !badge) return;
+
+  var levels = ['Low', 'Medium', 'High', 'Max', 'Ultracode'];
+
+  function updateBadge() {
+    var idx = parseInt(slider.value, 10);
+    badge.textContent = levels[idx] || levels[0];
+  }
+
+  slider.addEventListener('input', updateBadge);
+  updateBadge();
+})();
+
+// Accent swatches
+(function() {
+  var swatches = document.querySelectorAll('.swatch');
+  if (!swatches.length) return;
+
+  var root = document.documentElement;
+
+  swatches.forEach(function(sw) {
+    sw.addEventListener('click', function() {
+      swatches.forEach(function(s) { s.setAttribute('aria-checked', 'false'); });
+      sw.setAttribute('aria-checked', 'true');
+      root.style.setProperty('--accent', sw.dataset.color);
+      root.style.setProperty('--accent-soft', sw.dataset.color + '2e');
+    });
+  });
+})();
+
+// Screenshot gallery overlay
+(function() {
+  var screens = document.querySelectorAll('.screenshot');
+  if (!screens.length) return;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'gallery-overlay';
+  overlay.innerHTML = '<div class="overlay-close" aria-label="Close">&times;</div><div class="overlay-content"></div>';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(31,30,28,0.92);z-index:9999;display:none;align-items:center;justify-content:center;flex-direction:column;padding:24px;';
+  overlay.querySelector('.overlay-content').style.cssText = 'max-width:90vw;max-height:80vh;border-radius:8px;border:1px solid rgba(243,239,230,0.15);display:flex;align-items:center;justify-content:center;background:#282622;';
+  overlay.querySelector('.overlay-close').style.cssText = 'position:absolute;top:16px;right:20px;font-size:28px;color:#f3efe6;cursor:pointer;';
+
+  document.body.appendChild(overlay);
+
+  screens.forEach(function(s) {
+    s.addEventListener('click', function() {
+      var text = s.querySelector('.screenshot-placeholder').textContent;
+      overlay.querySelector('.overlay-content').textContent = text;
+      overlay.style.display = 'flex';
+    });
+    s.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        s.click();
+      }
+    });
+  });
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay || e.target.classList.contains('overlay-close')) {
+      overlay.style.display = 'none';
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') overlay.style.display = 'none';
+  });
+})();

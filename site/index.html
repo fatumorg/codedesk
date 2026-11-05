@@ -97,12 +97,149 @@ design-system/
 
       <div class="cursor-glow" aria-hidden="true"></div>
     </section>
-    <section id="workspaces"></section>
-    <section id="review"></section>
-    <section id="effort"></section>
-    <section id="make-it-yours"></section>
-    <section id="stills"></section>
-    <section id="install"></section>
+    <section id="workspaces">
+      <div class="container">
+        <h2>Add more folders. Claude reads and edits all of them.</h2>
+        <div class="workspace-cards">
+          <div class="folder-card reveal reveal-delay-1">
+            <div class="card-header">📁 app</div>
+            <div class="card-body">
+              <div class="card-file">index.html</div>
+              <div class="card-file">style.css</div>
+              <div class="card-file">app.js</div>
+            </div>
+          </div>
+          <div class="folder-card reveal reveal-delay-2">
+            <div class="card-header">📁 api</div>
+            <div class="card-body">
+              <div class="card-file">routes.js</div>
+              <div class="card-file">handlers.js</div>
+              <div class="card-file">middleware.js</div>
+            </div>
+          </div>
+          <div class="folder-card reveal reveal-delay-3">
+            <div class="card-header">📁 design-system</div>
+            <div class="card-body">
+              <div class="card-file">tokens.css</div>
+              <div class="card-file">components.html</div>
+              <div class="card-file">icons.svg</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="review">
+      <div class="container">
+        <h2>Review everything.</h2>
+        <div class="review-layout">
+          <div class="diff-panel reveal">
+            <div class="diff-header">Changed files</div>
+            <div class="diff-content">
+              <div class="diff-row"><span class="diff-num">~</span> <code>app/app.js</code> <span class="diff-hunk">@ 12:45</span></div>
+              <div class="diff-row"><span class="diff-num">~</span> <code>api/routes.js</code> <span class="diff-hunk">@ 12:48</span></div>
+              <div class="diff-row"><span class="diff-num">+</span> <code>design-system/tokens.css</code> <span class="diff-hunk">@ 12:50</span></div>
+              <div class="diff-line-detail">@@ -1,3 +1,4 @@</div>
+              <div class="diff-line-detail del">-  color: #333;</div>
+              <div class="diff-line-detail add"><span class="diff-add-text">  color: var(--fg);</span></div>
+              <div class="diff-line-detail"><span>  font-family: var(--sans);</span></div>
+              <div class="diff-line-detail add"><span class="diff-add-text">+  accent: var(--accent);</span></div>
+            </div>
+          </div>
+          <div class="permission-panel reveal reveal-delay-2">
+            <div class="perm-box">
+              <div class="perm-header">Allow Claude to make these changes?</div>
+              <div class="perm-keys">
+                <button class="key key-1" aria-label="Approve, 1">1</button>
+                <button class="key key-2" aria-label="Reject, 2">2</button>
+                <button class="key key-3" aria-label="Always allow, 3">3</button>
+              </div>
+              <div class="perm-note">Claude will ask every time by default.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="effort">
+      <div class="container">
+        <h2>Effort, on a slider.</h2>
+        <div class="effort-control">
+          <div class="effort-slider-wrap">
+            <input type="range" min="0" max="4" step="1" value="0" class="effort-slider" id="effort-slider" aria-label="Effort level">
+            <div class="effort-ticks">
+              <span class="effort-tick">Low</span>
+              <span class="effort-tick">Medium</span>
+              <span class="effort-tick">High</span>
+              <span class="effort-tick">Max</span>
+              <span class="effort-tick">Ultracode</span>
+            </div>
+          </div>
+          <div class="model-badge" id="model-badge">Low</div>
+          <p class="effort-note">Claude spends more or less reasoning depending on where the slider sits.</p>
+        </div>
+      </div>
+    </section>
+    <section id="make-it-yours">
+      <div class="container">
+        <h2>Make it yours.</h2>
+        <p class="section-sub">Pick your accent. Everything shifts with it.</p>
+        <div class="swatches" role="radiogroup" aria-label="Accent color">
+          <button class="swatch swatch-terracotta" style="--swatch-color: #d97757;" role="radio" aria-checked="true" aria-label="Terracotta" data-color="#d97757"></button>
+          <button class="swatch swatch-blue" style="--swatch-color: #6b8dd6;" role="radio" aria-checked="false" aria-label="Ocean blue" data-color="#6b8dd6"></button>
+          <button class="swatch swatch-green" style="--swatch-color: #5bb072;" role="radio" aria-checked="false" aria-label="Fern green" data-color="#5bb072"></button>
+          <button class="swatch swatch-violet" style="--swatch-color: #9b7bd6;" role="radio" aria-checked="false" aria-label="Plum" data-color="#9b7bd6"></button>
+          <button class="swatch swatch-amber" style="--swatch-color: #d4a24a;" role="radio" aria-checked="false" aria-label="Amber" data-color="#d4a24a"></button>
+        </div>
+      </div>
+    </section>
+    <section id="stills">
+      <div class="container">
+        <h2>Still shots.</h2>
+        <div class="screenshot-grid">
+          <div class="screenshot reveal" tabindex="0" role="button" aria-label="View screenshot: workspace">
+            <div class="screenshot-placeholder">Workspace</div>
+          </div>
+          <div class="screenshot reveal reveal-delay-1" tabindex="0" role="button" aria-label="View screenshot: conversation">
+            <div class="screenshot-placeholder">Conversation</div>
+          </div>
+          <div class="screenshot reveal reveal-delay-2" tabindex="0" role="button" aria-label="View screenshot: review panel">
+            <div class="screenshot-placeholder">Review panel</div>
+          </div>
+          <div class="screenshot reveal reveal-delay-3" tabindex="0" role="button" aria-label="View screenshot: settings">
+            <div class="screenshot-placeholder">Settings</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="install">
+      <div class="container">
+        <h2>Install Codedesk.</h2>
+        <div class="install-tiles">
+          <div class="tile reveal">
+            <h3>macOS</h3>
+            <pre>npm install -g codedesk
+codedesk</pre>
+            <p class="tile-note">Requires Node.js 18+</p>
+            <a href="#">Download .dmg</a>
+          </div>
+          <div class="tile reveal reveal-delay-1">
+            <h3>Linux</h3>
+            <pre>npm install -g codedesk
+codedesk</pre>
+            <p class="tile-note">AppImage and .deb available</p>
+            <a href="#">Download .AppImage</a>
+          </div>
+          <div class="tile reveal reveal-delay-2">
+            <h3>Source</h3>
+            <pre>git clone https://github.com/nx1ce/codedesk.git
+cd codedesk && npm install</pre>
+            <p class="tile-note">MIT license</p>
+            <a href="https://github.com/nx1ce/codedesk">View on GitHub</a>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer>
