@@ -19,7 +19,84 @@
   </header>
 
   <main>
-    <section id="hero"></section>
+    <section id="hero">
+      <div class="hero-workspace" aria-hidden="true">
+        <div class="folder-tree">
+          <div class="folder open">
+            <span class="folder-icon">📂</span><span class="folder-name">app</span>
+            <div class="folder-children">
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">index.html</span></div>
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">style.css</span></div>
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">app.js</span></div>
+            </div>
+          </div>
+          <div class="folder open">
+            <span class="folder-icon">📂</span><span class="folder-name">api</span>
+            <div class="folder-children">
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">routes.js</span></div>
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">handlers.js</span></div>
+            </div>
+          </div>
+          <div class="folder open">
+            <span class="folder-icon">📂</span><span class="folder-name">design-system</span>
+            <div class="folder-children">
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">tokens.css</span></div>
+              <div class="file"><span class="file-icon">📄</span><span class="file-name">components.html</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <svg class="hero-line" viewBox="0 0 300 100" aria-hidden="true">
+        <path class="line-path" d="M0 50 Q 100 50, 150 50 Q 200 50, 300 50" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="300" stroke-dashoffset="300"/>
+        <circle class="line-dot" cx="0" cy="50" r="4" fill="var(--accent)"/>
+      </svg>
+
+      <div class="hero-conversation">
+        <div class="conv-header">
+          <span class="conv-dot"></span><span class="conv-dot"></span><span class="conv-dot"></span>
+          <span class="conv-title">Codedesk</span>
+        </div>
+        <div class="conv-body">
+          <div class="message user">
+            <div class="msg-avatar" aria-hidden="true">U</div>
+            <div class="msg-bubble user-bubble">
+              <span class="msg-text show-early">Show me how Codedesk works with multiple folders.</span>
+            </div>
+          </div>
+          <div class="message assistant">
+            <div class="msg-avatar" aria-hidden="true">C</div>
+            <div class="msg-bubble assistant-bubble">
+              <p class="msg-text show-early">Here's how your workspace looks. Claude works across all folders:</p>
+              <pre class="code-block show-early"><code>app/
+  ├── index.html
+  └── app.js
+api/
+  ├── routes.js
+  └── handlers.js
+design-system/
+  ├── tokens.css
+  └── components.html</code></pre>
+              <div class="diff-block show-early">
+                <div class="diff-line add"><span class="diff-add">  + design-system/tokens.css</span></div>
+              </div>
+              <div class="prompt-approval show-early">
+                <div class="prompt-box">
+                  <div class="prompt-header">Claude wants to make changes</div>
+                  <div class="prompt-keys">
+                    <button class="key key-1" aria-label="Approve, 1">1</button>
+                    <button class="key key-2" aria-label="Reject, 2">2</button>
+                    <button class="key key-3" aria-label="Always allow, 3">3</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cursor-glow" aria-hidden="true"></div>
+    </section>
     <section id="workspaces"></section>
     <section id="review"></section>
     <section id="effort"></section>
