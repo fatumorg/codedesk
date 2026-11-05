@@ -66,6 +66,12 @@ A landing page for developers who already use Claude Code, to convince them to i
 - Assets: copy the 4 repo screenshots into `site/screenshots/` (chat.png, effort.png, light.png, workspace.png; 133–258k each).
 - Deployment: self-contained static directory. Where it's hosted is a partner decision, not a build dependency.
 
+### Builder decisions (partner delegated)
+
+- Hero conversation: crafted demo using real app concepts (settings, themes, workspaces from the README) with placeholder text that reads like a real Codedesk conversation. Not fake stats — a plausible demo exchange showcasing the product.
+- Effort slider: visual replica only on the landing page. No IPC to the app.
+- Review section diff: a real diff from the repo's git history (builder grabs a recent meaningful commit).
+
 ### Design tokens
 
 | Token | Value |
