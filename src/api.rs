@@ -125,6 +125,14 @@ pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Val
             ok(Value::Null)
         }
         "find" => ok(Value::Null),
+        "remoteStatus" => ok(crate::remote::status().await),
+        "remoteSet" => crate::remote::set(a(0) == true).await,
+        "remotePair" => ok(crate::remote::pair()),
+        "remoteRevoke" => {
+            crate::remote::REMOTE.revoke(&s(0))?;
+            ok(crate::remote::status().await)
+        }
+        "remoteTailscale" => ok(crate::remote::tailscale_serve().await),
         "listSessions" => {
             let dir = args.first().and_then(|v| v.as_str()).filter(|d| !d.is_empty()).map(String::from);
             ok(blocking(move || {

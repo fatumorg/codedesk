@@ -8,6 +8,7 @@ mod files;
 mod gemini;
 mod hub;
 mod local;
+mod remote;
 mod session;
 mod shared;
 mod transcripts;
@@ -123,8 +124,14 @@ fn main() {
                     core().hub.sweep();
                 }
             });
+            let remote_on = remote::REMOTE.devices.enabled();
+            if remote_on {
+                tauri::async_runtime::spawn(remote::start());
+            }
             if !background {
                 open_window(app.handle(), dir_from(&argv))?;
+            } else if !remote_on {
+                app.handle().exit(0);
             }
             Ok(())
         })
