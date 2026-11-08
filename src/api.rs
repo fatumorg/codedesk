@@ -58,6 +58,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
 pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Value, String> {
     let c = core();
     let s = |i: usize| arg_str(&args, i);
+    let a = |i: usize| args.get(i).cloned().unwrap_or(Value::Null);
     match ch {
         "info" => ok(c.info()),
         "listDir" => ok(files::list_dir(&s(0))),
@@ -124,6 +125,38 @@ pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Val
             ok(Value::Null)
         }
         "find" => ok(Value::Null),
+        "start" => crate::session::start(client, a(0), a(1)).await,
+        "stop" | "detach" => {
+            crate::session::detach(client, &a(0));
+            ok(Value::Null)
+        }
+        "send" => {
+            crate::session::send(client, &a(0), a(1));
+            ok(Value::Null)
+        }
+        "control" => crate::session::control(client, &a(0), &s(1), args.iter().skip(2).cloned().collect()).await,
+        "permit" => {
+            crate::session::permit(client, &a(0), &s(1), a(2));
+            ok(Value::Null)
+        }
+        "liveSessions" => ok(crate::session::live(client)),
+        "attach" => ok(crate::session::attach(client, a(0), &s(1))),
+        "usage" => ok(crate::session::usage(client, &a(0), a(1) == true, &s(2)).await),
+        "accounts" => ok(crate::session::accounts().list()),
+        "addAccount" => {
+            let bin = c.claude_bin();
+            ok(crate::session::accounts()
+                .add(|env| async move { run(bin, &["auth".into(), "login".into()], RunOpts { env, timeout: Some(Duration::from_secs(600)), ..Default::default() }).await })
+                .await)
+        }
+        "removeAccount" => crate::session::accounts().remove(&s(0)).map(|_| Value::Null),
+        "googleStatus" => ok(crate::session::google_status().await),
+        "localStatus" => ok(crate::local::status(&a(0)).await),
+        "localStart" => crate::local::start(&a(0), &s(1)).await.map(|_| Value::Null),
+        "localStop" => {
+            crate::local::stop_llama();
+            ok(Value::Null)
+        }
         _ => Err(format!("Unknown channel: {ch}")),
     }
 }

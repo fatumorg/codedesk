@@ -2,4 +2,6 @@ node_modules/
 result
 dist/
 CLAUDE.md
-docs/target/
+docs/
+target/
+gen/

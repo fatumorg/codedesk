@@ -1,9 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod accounts;
 mod api;
+mod claude;
 mod core;
 mod files;
+mod gemini;
 mod hub;
+mod local;
+mod session;
 mod shared;
 mod util;
 
@@ -110,6 +115,13 @@ fn main() {
         .invoke_handler(tauri::generate_handler![call])
         .setup(move |app| {
             let _ = core().handle.set(app.handle().clone());
+            tauri::async_runtime::spawn(async {
+                let mut t = tokio::time::interval(std::time::Duration::from_secs(60));
+                loop {
+                    t.tick().await;
+                    core().hub.sweep();
+                }
+            });
             if !background {
                 open_window(app.handle(), dir_from(&argv))?;
             }
