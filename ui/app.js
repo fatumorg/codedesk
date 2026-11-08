@@ -1436,6 +1436,9 @@ function openSettings(section = 'appearance') {
       row('Reasoning effort', select('defaultEffort', EFFORTS.map(l => [l.value, l.label]))),
       row('Ultracode', toggle('defaultUltracode'), 'Claude plans and runs multi-agent workflows for big tasks, at the effort above.'),
     ]],
+    computer: ['Computer use', 'cursor-click', () => [
+      row('Let Claude use this computer', toggle('computerUse', restartIdleTabs), 'Claude can take screenshots and move the mouse and type on this computer. Every action asks you first, unless the conversation is in Bypass mode. Claude models only.'),
+    ]],
     google: ['Antigravity', 'sparkle', () => [
       el('div', 'kv',
         el('span', '', 'Antigravity CLI'), el('span', 'mono', App.info.agyPath || 'Not installed'),

@@ -179,18 +179,21 @@ pub async fn start(client: &Client, tab: Value, opts: Value) -> Result<Value, St
     if local {
         disallowed.extend(LOCAL_BLOCKED.map(String::from));
     }
-    let settings = local.then(|| {
+    let computer = opts["computerUse"] == true && !local;
+    let settings = if local {
         let mut o = local_overrides(&opts["local"]["off"]);
         o["env"] = json!(account_env);
-        o
-    });
+        Some(o)
+    } else {
+        computer.then(|| json!({ "permissions": { "ask": ["mcp__computer"] } }))
+    };
     let launch = Launch {
         model: Some(if local { local_id(&model).to_string() } else { model.clone() }).filter(|m| !m.is_empty()),
         effort: opts["effort"].as_str().filter(|e| !local && !e.is_empty()).map(String::from),
         max_turns,
         resume,
         disallowed,
-        mcp_config: None,
+        mcp_config: computer.then(crate::computer::mcp_config),
         permission_mode: if local { local_mode(&mode).to_string() } else { mode.clone() },
         add_dirs: opts["additionalDirectories"].as_array().into_iter().flatten().filter_map(|d| d.as_str().map(String::from)).collect(),
         fork,

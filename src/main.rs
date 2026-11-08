@@ -3,6 +3,7 @@
 mod accounts;
 mod api;
 mod claude;
+mod computer;
 mod core;
 mod files;
 mod gemini;
@@ -104,6 +105,9 @@ fn serve_cdfile(path: &str) -> Response<Vec<u8>> {
 
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
+    if argv.iter().any(|a| a == "--computer-use-mcp") {
+        return computer::run_mcp_stdio();
+    }
     let background = argv.iter().any(|a| a == "--background");
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _| {

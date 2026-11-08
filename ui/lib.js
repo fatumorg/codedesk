@@ -48,7 +48,7 @@ const DEFAULTS = {
   theme: 'system', palette: 'warm', accent: 'terracotta', accentCustom: '#c96442', uiFont: 'geist', proseFont: 'serif', monoFont: 'geist',
   density: 'comfortable', radius: 'soft', fontSize: 14, chatWidth: 780, motion: true, customCss: '',
   showThinking: true, expandTools: false, sounds: false, enterSends: true, notifications: true, autoContinue: true, continuePrompt: '', continuePrompts: {}, continueFirst: {}, account: 'system', projectAccounts: {}, sessionAccounts: {}, sessionPrefs: {}, autoSwitchAccount: true, localFallback: true, localFallbackModel: '', localMode: 'host', localHosted: [{ source: 'ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf' }, { source: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf', ctx: 131072 }], localOff: {}, localUrl: 'http://127.0.0.1:11434', localKey: '', localNames: {}, saverModel: '', subagentModel: '', allowSubagents: true, compactAt: '', maxTurns: '', saverOn: false, saverQuickWords: 'explain, what is, what does, list, where is, rename, typo, format, summarize, translate', saverQuickModel: 'haiku', saverHeavyWords: 'design, architect, debug, refactor, migrate, implement, plan, security, review, investigate, fix', saverHeavyModel: 'opus', saverOtherModel: 'sonnet', editor: 'code',
-  defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium', defaultUltracode: false,
+  defaultMode: 'auto', defaultModel: 'opus', defaultEffort: 'medium', defaultUltracode: false, computerUse: false,
   panelWidth: 460, sidebar: true, panel: false, panelTab: 'files', pinned: [], workspaces: {}, projects: [], v: 3,
 }
 const ACCENTS = {

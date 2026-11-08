@@ -150,7 +150,7 @@ class Tab {
         cwd: this.cwd, account: this.account, resume: this.sessionId, model: this.model || undefined, permissionMode: this.mode,
         effort: this.effort || undefined, additionalDirectories: this.addDirs,
         saver: { subagentModel: settings.subagentModel, compactAt: settings.compactAt, maxTurns: settings.maxTurns, noSubagents: !settings.allowSubagents },
-        ...(local && { local: localConfig() }), ...extra,
+        computerUse: !!settings.computerUse, ...(local && { local: localConfig() }), ...extra,
       }))
       if (local) App.status(this, '')
     } catch (e) {
