@@ -10,6 +10,7 @@ mod hub;
 mod local;
 mod session;
 mod shared;
+mod transcripts;
 mod util;
 
 use crate::core::core;

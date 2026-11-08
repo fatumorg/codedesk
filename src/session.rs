@@ -244,6 +244,13 @@ fn on_event(key: &str, ev: Event) {
             if *local && msg["type"] == "system" && msg["subtype"] == "init" {
                 msg["permissionMode"] = s.entry.info()["permissionMode"].clone();
             }
+            if msg["type"] == "system" && msg["subtype"] == "commands_changed" && msg["commands"].is_array() {
+                let meta = s.entry.state.lock().unwrap().meta.clone();
+                if let Some(mut m) = meta {
+                    m["commands"] = msg["commands"].clone();
+                    s.entry.emit("claude:meta", m);
+                }
+            }
             s.entry.emit("claude:message", json!({ "msg": msg }));
         }
         Event::Permission { request_id, request } => {

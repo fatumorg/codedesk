@@ -1,5 +1,5 @@
 use crate::core::{core, scheme_url};
-use crate::files;
+use crate::{files, transcripts};
 use crate::hub::Client;
 use crate::util::{arg_str, run, strip_ansi, RunOpts};
 use serde_json::{json, Value};
@@ -125,6 +125,57 @@ pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Val
             ok(Value::Null)
         }
         "find" => ok(Value::Null),
+        "listSessions" => {
+            let dir = args.first().and_then(|v| v.as_str()).filter(|d| !d.is_empty()).map(String::from);
+            ok(blocking(move || {
+                let mut out: Vec<Value> = crate::session::gemini_store()
+                    .into_values()
+                    .filter(|g| dir.as_deref().is_none_or(|d| g["cwd"] == d))
+                    .map(|mut g| {
+                        if let Some(o) = g.as_object_mut() {
+                            o.remove("messages");
+                        }
+                        g
+                    })
+                    .collect();
+                out.extend(transcripts::list(&files::claude_dir(), dir.as_deref(), 200));
+                out.sort_by_key(|v| -v["lastModified"].as_i64().unwrap_or(0));
+                out
+            })
+            .await)
+        }
+        "history" => {
+            let (id, dir) = (s(0), s(1));
+            if let Some(h) = crate::session::live_gemini_history(&id) {
+                return ok(h);
+            }
+            if let Some(g) = crate::session::gemini_store().get(&id) {
+                return ok(if g["messages"].is_array() { g["messages"].clone() } else { json!([]) });
+            }
+            ok(blocking(move || transcripts::messages(&files::claude_dir(), &id, Some(&dir).filter(|d| !d.is_empty()).map(|d| d.as_str()))).await)
+        }
+        "renameSession" => {
+            let (id, title, dir) = (s(0), s(1), s(2));
+            let t = title.clone();
+            if crate::session::update_gemini_store(|all| all.get_mut(&id).map(|g| g["customTitle"] = json!(t)).is_some()) {
+                return ok(Value::Null);
+            }
+            transcripts::rename(&files::claude_dir(), &id, &title, Some(dir.as_str()).filter(|d| !d.is_empty())).map(|_| Value::Null)
+        }
+        "deleteSession" => {
+            let (id, dir) = (s(0), s(1));
+            if crate::session::update_gemini_store(|all| all.remove(&id).is_some()) {
+                return ok(Value::Null);
+            }
+            transcripts::delete(&files::claude_dir(), &id, Some(dir.as_str()).filter(|d| !d.is_empty())).map(|_| Value::Null)
+        }
+        "forkSession" => {
+            let (id, dir, up) = (s(0), s(1), s(2));
+            if crate::session::gemini_store().contains_key(&id) {
+                return Err("Fork is not available for Gemini conversations".into());
+            }
+            transcripts::fork(&files::claude_dir(), &id, Some(dir.as_str()).filter(|d| !d.is_empty()), Some(up.as_str()).filter(|u| !u.is_empty())).map(|n| json!({ "sessionId": n }))
+        }
         "start" => crate::session::start(client, a(0), a(1)).await,
         "stop" | "detach" => {
             crate::session::detach(client, &a(0));
