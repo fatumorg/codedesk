@@ -323,7 +323,7 @@ details.tool { border: 1px solid var(--border); border-radius: calc(10px * var(-
 #dock > * { max-width: var(--chat-width); margin-left: auto; margin-right: auto; }
 #composer { container-type: inline-size; border: 1px solid var(--border-strong); border-radius: calc(14px * var(--rk)); background: var(--surface); padding: calc(10px * var(--dk)) 10px calc(8px * var(--dk)) 14px; transition: border-color .15s, box-shadow .15s; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
 #composer:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 4px var(--hover), 0 1px 2px rgba(0,0,0,.03); }
-#input { width: 100%; border: 0; outline: none; resize: none; background: transparent; max-height: 40vh; min-height: 24px; padding: 2px 0; line-height: 1.5; font-size: calc(var(--font-size) + 1px); }
+#input { width: 100%; border: 0; outline: none; resize: none; background: transparent; max-height: 40vh; min-height: calc(1.5em + 4px); overflow-x: hidden; padding: 2px 0; line-height: 1.5; font-size: calc(var(--font-size) + 1px); }
 #input::placeholder { color: var(--muted); }
 .composer-bar { display: flex; align-items: center; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 .composer-bar .chip span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }

@@ -11,6 +11,7 @@ mod local;
 mod remote;
 mod session;
 mod shared;
+mod term;
 mod transcripts;
 mod util;
 
@@ -122,6 +123,7 @@ fn main() {
                 loop {
                     t.tick().await;
                     core().hub.sweep();
+                    term::kill_where(|c| !c.alive());
                 }
             });
             let remote_on = remote::REMOTE.devices.enabled();

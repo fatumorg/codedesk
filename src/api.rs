@@ -26,6 +26,10 @@ fn ok<T: Into<Value>>(v: T) -> Result<Value, String> {
     Ok(v.into())
 }
 
+fn id_of(v: &Value) -> String {
+    v.as_str().map(String::from).unwrap_or_else(|| v.to_string())
+}
+
 pub fn is_remote(client: &Client) -> bool {
     client.id.starts_with('p')
 }
@@ -125,6 +129,23 @@ pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Val
             ok(Value::Null)
         }
         "find" => ok(Value::Null),
+        "termStart" => {
+            let n = |i: usize| args.get(i).and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+            crate::term::start(client, &id_of(&a(0)), &s(1), n(2), n(3), crate::term::shell()).map(|_| Value::Null)
+        }
+        "termWrite" => {
+            crate::term::write(client, &id_of(&a(0)), &s(1));
+            ok(Value::Null)
+        }
+        "termResize" => {
+            let n = |i: usize| args.get(i).and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+            crate::term::resize(client, &id_of(&a(0)), n(1), n(2));
+            ok(Value::Null)
+        }
+        "termKill" => {
+            crate::term::kill(client, &id_of(&a(0)));
+            ok(Value::Null)
+        }
         "remoteStatus" => ok(crate::remote::status().await),
         "remoteSet" => crate::remote::set(a(0) == true).await,
         "remotePair" => ok(crate::remote::pair()),
@@ -242,6 +263,26 @@ fn open_in_editor(cmd: &str, file: &str, line: Option<u64>) {
         }
         Err(_) => {
             let _ = core().app().opener().open_path(file, None::<&str>);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_ui_channel_has_a_handler() {
+        let src = [include_str!("api.rs"), include_str!("main.rs")].concat();
+        let channels = "start stop send control permit listSessions history renameSession deleteSession forkSession listDir listFiles readFile writeFile git runShell cli appendMemory createFile \
+            writeTemp fileUrl openPath openInEditor showItem openExternal pickFolder saveFile find info statusLine usage termStart termWrite termResize termKill \
+            googleStatus accounts addAccount removeAccount liveSessions attach detach saveShared remoteStatus remoteSet remotePair remoteRevoke remoteTailscale localStatus localStart localStop \
+            extensions setSkill deleteSkill readBytes newWindow zoom devtools fullscreen quit";
+        let ui: String = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/ui")).unwrap().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "js")).map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
+        let used: Vec<String> = ui.match_indices("api.").filter_map(|(i, _)| {
+            let name: String = ui[i + 4..].chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+            (!["on", "shared", "pathFor"].contains(&name.as_str()) && !name.is_empty()).then_some(name)
+        }).collect();
+        for c in channels.split_whitespace().map(String::from).chain(used) {
+            assert!(src.contains(&format!("\"{c}\"")), "no handler for {c}");
         }
     }
 }

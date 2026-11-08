@@ -72,6 +72,7 @@ impl Core {
     pub fn window_closed(&self, label: &str) {
         if let Some(c) = self.windows.lock().unwrap().remove(label) {
             self.hub.drop_client(&c.id);
+            crate::term::kill_where(|t| t.id == c.id);
         }
     }
 
