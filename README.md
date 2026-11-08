@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="build/icon.png" width="96" alt="Codedesk">
+<img src="ui/icons/icon.png" width="96" alt="Codedesk">
 
 # Codedesk
 
@@ -9,13 +9,12 @@
 Uses the `claude` CLI you already have installed, along with your login, settings, CLAUDE.md, hooks, skills, plugins, MCP servers and slash commands.
 
 [![Linux](https://img.shields.io/badge/Linux-NixOS_ready-5277C3?style=for-the-badge&logo=nixos&logoColor=white)](#-install)
-[![macOS](https://img.shields.io/badge/macOS-supported-000000?style=for-the-badge&logo=apple&logoColor=white)](#-install)
-[![Windows](https://img.shields.io/badge/Windows-supported-0078D4?style=for-the-badge&logo=windows&logoColor=white)](#-install)
 <br>
-[![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org)
+[![Rust](https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white)](src)
+[![Tauri](https://img.shields.io/badge/Tauri_2-24C8D8?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
 [![Claude Agent SDK](https://img.shields.io/badge/Claude_Agent_SDK-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://docs.claude.com/en/api/agent-sdk/overview)
 [![Vanilla JS](https://img.shields.io/badge/Vanilla_JS-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](ui)
-[![License: MIT](https://img.shields.io/badge/License-MIT-3DA639?style=flat-square)](package.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-3DA639?style=flat-square)](Cargo.toml)
 
 <br>
 
@@ -52,7 +51,21 @@ Inline diffs with line numbers, permission prompts (keys `1` `2` `3`), plan appr
 <td valign="top">
 
 ### 🎨 Make it yours
-Light, dark or system theme. Four backgrounds, accent colors, fonts, density, corner style and custom CSS.
+Light, dark or system theme. Four backgrounds, accent colors, fonts, density, corner style and custom CSS. The logo, window icon and launcher icon take your accent color.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🖱️ Computer Use
+Let Claude see your screen and use the mouse and keyboard, with a permission prompt for each action.
+
+</td>
+<td valign="top">
+
+### ⏰ Scheduled prompts
+Send a prompt at a set time, on chosen weekdays, or as soon as your usage limit resets, into a new conversation or an existing one.
 
 </td>
 </tr>
@@ -108,11 +121,14 @@ Or add `packages.${system}.default` from this flake to your system packages to g
 </td>
 <td valign="top">
 
+Install Rust, the [Tauri prerequisites](https://tauri.app/start/prerequisites/) (WebKitGTK 4.1 on Linux) and the Tauri CLI (`cargo install tauri-cli`), then:
+
 ```sh
-npm install
-npm start          # run it
-npm run dist       # AppImage / deb / rpm / dmg / exe → dist/
+cargo run              # run it
+cargo tauri build      # AppImage / deb / rpm → target/release/bundle
 ```
+
+Only Linux is tested. macOS and Windows may build but are untested.
 
 </td>
 </tr>
@@ -128,7 +144,7 @@ npm run dist       # AppImage / deb / rpm / dmg / exe → dist/
 
 Control the Codedesk on your PC from anywhere, with the same look: every project, workspace folder, account, conversation and the ones running right now. Nothing opens a port and your phone does not need to be on the same wifi.
 
-Codedesk only listens on `127.0.0.1:4870` on the PC. A tunnel you set up reaches that port with outbound connections only.
+Codedesk only listens on `127.0.0.1:4870` on the PC (`CODEDESK_REMOTE_PORT` changes the port). A tunnel you set up reaches that port with outbound connections only.
 
 **1. Tailscale (recommended).** Only your own devices can reach the PC.
 
@@ -152,6 +168,27 @@ systemd.user.services.codedesk = {
 ```
 
 **Limits.** Claude sign-in opens a browser, so accounts are added on the PC (switching and removing work from the phone). No notifications while the page is closed. Auto-continue after a limit only runs while the page that owns the conversation is open. Dev-server previews on `localhost` don't load on the phone. The PC must be on.
+
+<br>
+
+## 🖱️ Computer Use
+
+Turn on **Settings → Computer use** and new Claude conversations get tools to take screenshots, move and click the mouse, drag, scroll, type and press keys. Codedesk runs them itself through a built-in MCP server (`codedesk --computer-use-mcp`), so nothing else needs installing. Computer actions show a permission prompt, even in Auto mode. Screenshots are scaled so their longer side is at most 1280 pixels, and clicks are mapped back to real screen coordinates.
+
+It works on X11. On Wayland, screen capture and input go through the compositor, which may ask for permission or refuse. Local-model conversations don't get these tools.
+
+<br>
+
+## ⏰ Scheduled prompts
+
+Open the schedule list with the calendar button in the top bar or **Schedules** in the command palette (`Ctrl+K`). A schedule has:
+
+- **What:** a prompt and a project folder.
+- **Where:** a **new conversation**, or **an existing one** to continue (for example with `/continue`).
+- **When:** **once** at a date and time, **repeat** on chosen weekdays at one or more times, or **after the limit resets** (it fires as soon as your usage limit lifts).
+- Optional model, effort, permission mode and account.
+
+The **Schedule** button on a limit notice, and **Schedule a prompt** in a conversation's menu, fill the form in for that conversation. Schedules run in the background with no window open: while one is enabled, closing the last window keeps Codedesk running, and `codedesk --background` stays up for them. If the PC was asleep, a one-time schedule still runs up to 12 hours late. A repeating one more than 10 minutes late skips to its next time. A conversation that is busy is waited on (up to 30 minutes) before the prompt is sent.
 
 <br>
 
@@ -246,10 +283,10 @@ Command palette (`Ctrl+K`), find (`Ctrl+F`), `/copy`, open files in your editor,
 
 ## 🪶 Light by design
 
-Claude Code only starts for a tab once you type in it, stops after **15 idle minutes** (it resumes on its own), and the terminal and diagram engines load only when first used.
+Codedesk is a single native Rust binary on your system's WebView, with no bundled browser or Node runtime. Claude Code only starts for a tab once you type in it, stops after **15 idle minutes** (it resumes on its own), and the terminal and diagram engines load only when first used.
 
 <br>
 
 <div align="center">
-<sub>Built with Electron and vanilla JS · Runs on your own Claude Code</sub>
+<sub>Built with Rust, Tauri and vanilla JS · Runs on your own Claude Code</sub>
 </div>
