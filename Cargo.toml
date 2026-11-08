@@ -9,7 +9,7 @@ license = "MIT"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "image-png"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -27,6 +27,7 @@ sha2 = "0.10"
 getrandom = "0.3"
 portable-pty = "0.9"
 chrono = "0.4"
+resvg = "0.45"
 trash = "5"
 regex = "1"
 enigo = { version = "0.6.1", features = ["wayland"] }

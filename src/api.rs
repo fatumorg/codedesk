@@ -135,6 +135,7 @@ pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Val
             crate::schedule::delete(&s(0));
             ok(Value::Null)
         }
+        "setIcon" => crate::icon::set_icon(&s(0)).map(|_| Value::Null),
         "runSchedule" => crate::schedule::run_now(&s(0)).map(|_| Value::Null),
         "termStart" => {
             let n = |i: usize| args.get(i).and_then(|v| v.as_u64()).unwrap_or(80) as u16;

@@ -122,6 +122,8 @@ function applySettings() {
   css.textContent = settings.customCss || ''
   document.body.classList.toggle('no-sidebar', !settings.sidebar)
   document.body.classList.toggle('with-panel', settings.panel)
+  const icon = settings.accent === 'custom' ? settings.accentCustom : (ACCENTS[settings.accent] || ACCENTS.terracotta)[2]
+  if (!REMOTE && icon !== applySettings.icon) { applySettings.icon = icon; api.setIcon(icon).catch(() => {}) }
   if (window.mermaid) mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'neutral', securityLevel: 'strict' })
 }
 const loaded = new Map()

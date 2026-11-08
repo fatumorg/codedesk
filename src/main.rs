@@ -8,6 +8,7 @@ mod core;
 mod files;
 mod gemini;
 mod hub;
+mod icon;
 mod local;
 mod remote;
 mod schedule;
