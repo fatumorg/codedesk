@@ -50,9 +50,9 @@
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.nodejs pkgs.electron ];
-          ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
-          shellHook = "alias start='electron .'";
+          nativeBuildInputs = with pkgs; [ rustc cargo clippy rustfmt pkg-config wrapGAppsHook3 cargo-tauri xdotool xorg.xorgserver imagemagick ];
+          buildInputs = with pkgs; [ webkitgtk_4_1 gtk3 libsoup_3 glib-networking openssl libxkbcommon libxcb xorg.libX11 xorg.libXtst xorg.libXi xorg.libXrandr wayland dbus pipewire libgbm libdrm ];
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
         };
       });
     };

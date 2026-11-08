@@ -166,7 +166,7 @@ function md(text) {
     wrap.append(bar, pre)
   }
   const charts = $$('.mermaid-src', d)
-  if (charts.length) loadScript('../vendor/mermaid.min.js').then(() => { applySettings(); charts.forEach(renderMermaid) })
+  if (charts.length) loadScript('vendor/mermaid.min.js').then(() => { applySettings(); charts.forEach(renderMermaid) })
   return d
 }
 

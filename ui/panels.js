@@ -477,9 +477,9 @@ const Terminals = {
   async attach(tab, host) {
     let t = this.map.get(tab.id)
     if (!t) {
-      loadStyle('../node_modules/@xterm/xterm/css/xterm.css')
-      await loadScript('../node_modules/@xterm/xterm/lib/xterm.js')
-      await loadScript('../node_modules/@xterm/addon-fit/lib/addon-fit.js')
+      loadStyle('vendor/npm/@xterm/xterm/css/xterm.css')
+      await loadScript('vendor/npm/@xterm/xterm/lib/xterm.js')
+      await loadScript('vendor/npm/@xterm/addon-fit/lib/addon-fit.js')
       if (this.map.get(tab.id)) return this.attach(tab, host)
       const term = new Terminal({
         fontFamily: '"Geist Mono Variable", ui-monospace, monospace', fontSize: 13, cursorBlink: true, allowProposedApi: true,
