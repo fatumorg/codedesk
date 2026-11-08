@@ -519,7 +519,7 @@ async fn route(State(r): State<Arc<Remote>>, req: Request) -> Response<Body> {
         return reply(StatusCode::METHOD_NOT_ALLOWED, "", &[]);
     }
     match p.as_str() {
-        "/" => reply(StatusCode::FOUND, "", &[("Location", "/index.html")]),
+        "/" | "/ui/index.html" => reply(StatusCode::FOUND, "", &[("Location", "/index.html")]),
         "/index.html" => r.index(),
         "/boot.js" => {
             let data = (r.opts.boot)().to_string().replace('<', "\\u003c");
@@ -902,6 +902,7 @@ mod tests {
             assert_eq!(t.get(p, &cookie).await.status(), 404, "{p}");
         }
         assert_eq!(t.get("/vendor/npm/marked/lib/marked.umd.js", &cookie).await.status(), 200);
+        assert_eq!(t.get("/ui/index.html", &cookie).await.headers()["location"], "/index.html");
         let r = t.get("/index.html", &cookie).await;
         assert!(r.headers()["content-security-policy"].to_str().unwrap().contains("frame-ancestors 'none'"));
         assert_eq!(r.headers()["referrer-policy"], "no-referrer");
