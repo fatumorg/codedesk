@@ -745,6 +745,7 @@ function sessionMenu(anchor, s, title) {
     } },
     ...(/^gemini/i.test(s.model || '') ? [] : [{ label: 'Fork (duplicate)', icon: 'git-fork', run: async () => App.openProject(cwd, await Tab.fork(s.sessionId, cwd), { newTab: true }) }]),
     { label: 'Export as Markdown', icon: 'export', run: async () => { const t = new Tab(cwd); t.sessionId = s.sessionId; t.title = title; await t.exportMarkdown() } },
+    ...(/^gemini/i.test(s.model || '') ? [] : [{ label: 'Schedule a prompt', icon: 'calendar-plus', run: () => editSchedule({ name: `Continue ${title}`, prompt: (settings.continuePrompts[s.sessionId] || settings.continuePrompt).trim() || Tab.CONTINUE, target: { kind: 'resume', cwd, sessionId: s.sessionId }, when: { kind: 'once', at: Date.now() + 3600e3 } }) }]),
     '-',
     { label: 'Delete', icon: 'trash', danger: true, run: async () => {
       if (!await confirmDialog('Delete conversation?', `"${title}" will be permanently deleted.`, 'Delete', true)) return
@@ -948,6 +949,7 @@ async function openUsage(tab = App.active) {
   await show(first)
 }
 $('#open-usage').onclick = () => openUsage()
+$('#open-schedules').onclick = () => openSchedules()
 $('#st-usage').onclick = () => openUsage()
 
 function signInAgy() {
@@ -1107,6 +1109,8 @@ function openPalette() {
     ['Copy conversation as Markdown', 'copy', async () => copy(await tab.markdown())],
     ['Copy last reply', 'copy', () => App.runCommand('copy')],
     ['Usage and limits', 'gauge', () => openUsage()],
+    ['Schedules', 'calendar-check', () => openSchedules()],
+    ['Schedule a prompt', 'calendar-plus', () => tab.sessionId ? scheduleFor(tab, { when: { kind: 'once', at: Date.now() + 3600e3 } }) : editSchedule()],
     ['Search prompt history', 'clock-counter-clockwise', () => openHistory(), 'Ctrl R'],
   ].map(([label, ic, run, hint]) => ({ label, icon: ic, run, hint }))
   const commands = [...Object.entries(App.commands).map(([n, c]) => ({ name: n, description: c.description })), ...tab.meta.commands]

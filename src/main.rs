@@ -10,6 +10,7 @@ mod gemini;
 mod hub;
 mod local;
 mod remote;
+mod schedule;
 mod session;
 mod shared;
 mod term;
@@ -134,9 +135,10 @@ fn main() {
             if remote_on {
                 tauri::async_runtime::spawn(remote::start());
             }
+            schedule::start();
             if !background {
                 open_window(app.handle(), dir_from(&argv))?;
-            } else if !remote_on {
+            } else if !remote_on && !schedule::pending() {
                 app.handle().exit(0);
             }
             Ok(())
@@ -145,7 +147,7 @@ fn main() {
         .expect("error while building Codedesk")
         .run(move |_, e| {
             if let tauri::RunEvent::ExitRequested { api, code: None, .. } = e {
-                if background {
+                if background || remote::REMOTE.devices.enabled() || schedule::pending() {
                     api.prevent_exit();
                 }
             }

@@ -709,3 +709,17 @@ input.effort-range { -webkit-appearance: none; appearance: none; width: 100%; he
   .tool-head { min-height: 44px; }
   .menu button { padding-block: 10px; }
 }
+.sched-list { display: flex; flex-direction: column; gap: 8px; }
+.sched-row { display: flex; align-items: center; gap: 14px; padding: 11px 12px 11px 14px; border: 1px solid var(--border); border-radius: calc(9px * var(--rk)); }
+.sched-row .row.tight { flex-shrink: 0; }
+.sched-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sched-main .setting-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched-status { margin-top: 4px; color: var(--fg-2); }
+.sched-empty { padding: 22px 16px; border: 1px dashed var(--border-strong); border-radius: calc(9px * var(--rk)); display: flex; flex-direction: column; gap: 4px; }
+.sched-form textarea.field { font-family: inherit; font-size: 14px; }
+.sched-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.sched-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.sched-days .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.stack.tight { gap: 6px; }
+@media (max-width: 560px) { .sched-grid { grid-template-columns: 1fr; } .sched-row { flex-wrap: wrap; } }
+.sched-form .segmented { align-self: flex-start; }

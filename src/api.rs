@@ -129,6 +129,13 @@ pub async fn dispatch(ch: &str, client: &Client, args: Vec<Value>) -> Result<Val
             ok(Value::Null)
         }
         "find" => ok(Value::Null),
+        "schedules" => ok(crate::schedule::list()),
+        "saveSchedule" => crate::schedule::save(a(0)),
+        "deleteSchedule" => {
+            crate::schedule::delete(&s(0));
+            ok(Value::Null)
+        }
+        "runSchedule" => crate::schedule::run_now(&s(0)).map(|_| Value::Null),
         "termStart" => {
             let n = |i: usize| args.get(i).and_then(|v| v.as_u64()).unwrap_or(80) as u16;
             crate::term::start(client, &id_of(&a(0)), &s(1), n(2), n(3), crate::term::shell()).map(|_| Value::Null)

@@ -468,8 +468,23 @@ async fn gemini_turn(sess: &Session, g: &Gem, msg: Value) {
     );
 }
 
+pub fn live_key(session_id: &str) -> Option<String> {
+    SESSIONS.lock().unwrap().values().find(|s| !s.closed.load(Ordering::SeqCst) && s.entry.session_id().as_deref() == Some(session_id)).map(|s| s.key.clone())
+}
+
+pub fn send_key(key: &str, msg: Value) {
+    if let Some(s) = get(key) {
+        deliver(&s, msg)
+    }
+}
+
 pub fn send(client: &Client, tab: &Value, msg: Value) {
-    let Some(s) = route(client, tab) else { return };
+    if let Some(s) = route(client, tab) {
+        deliver(&s, msg)
+    }
+}
+
+fn deliver(s: &Session, msg: Value) {
     if msg["shouldQuery"] != false {
         s.entry.mark_busy();
     }

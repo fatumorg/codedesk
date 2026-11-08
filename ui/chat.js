@@ -429,7 +429,7 @@ class Tab {
     const text = el('span', 'grow')
     const auto = button('Continue automatically', () => { saveSettings({ autoContinue: true }); this.renderResume() }, 'sm')
     this.resumeCard = el('div', 'notice limit', icon('hourglass-medium'), text,
-      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => this.editContinue(), 'ghost sm'), button('Run first', () => this.editFirst(), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
+      auto, button('Continue now', () => this.resume(), 'sm'), button('Edit message', () => this.editContinue(), 'ghost sm'), button('Run first', () => this.editFirst(), 'ghost sm'), button('Schedule', () => scheduleFor(this), 'ghost sm'), button('Cancel', () => this.cancelResume(true), 'ghost sm'))
     this.resumeCard.text = text
     this.resumeCard.auto = auto
     this.add(this.resumeCard)
