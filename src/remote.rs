@@ -563,6 +563,10 @@ pub fn parse_tailscale(status: Option<&str>, serve: Option<&str>, port: u16) -> 
     json!({ "dnsName": dns, "serving": serving })
 }
 
+pub fn phone_allowed(ch: &str) -> bool {
+    !crate::api::REMOTE_BLOCKED.contains(&ch) && !ch.starts_with("remote")
+}
+
 pub static REMOTE: LazyLock<Arc<Remote>> = LazyLock::new(|| {
     let c = crate::core::core();
     let call: CallFn = Arc::new(|ch, client, args| Box::pin(async move { crate::api::dispatch(&ch, &client, args).await }));
@@ -572,7 +576,7 @@ pub static REMOTE: LazyLock<Arc<Remote>> = LazyLock::new(|| {
         Opts {
             assets: Arc::new(|p| crate::core::core().app().asset_resolver().get(p.to_string()).map(|a| a.bytes)),
             call,
-            allowed: Arc::new(|ch| !crate::api::REMOTE_BLOCKED.contains(&ch) && !ch.starts_with("remote")),
+            allowed: Arc::new(phone_allowed),
             boot: Arc::new(|| json!({ "shared": crate::core::core().shared.get(), "info": crate::core::core().info() })),
             preview: Arc::new(|id| crate::core::core().previews.lock().unwrap().get(id).cloned()),
             on_pair: Arc::new(|d| {
@@ -710,6 +714,16 @@ mod tests {
             }
         };
         assert!(d.pair(&code.replace('0', "O").replace('1', "l").to_lowercase(), "x").is_some());
+    }
+
+    #[test]
+    fn phones_cannot_reach_pc_only_or_remote_settings_channels() {
+        for ch in ["pickFolder", "addAccount", "setIcon", "find", "remoteSet", "remotePair", "remoteRevoke"] {
+            assert!(!phone_allowed(ch), "{ch}");
+        }
+        for ch in ["send", "start", "saveSchedule", "listDir"] {
+            assert!(phone_allowed(ch), "{ch}");
+        }
     }
 
     #[test]
