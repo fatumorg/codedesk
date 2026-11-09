@@ -1595,7 +1595,7 @@ $('#close-panel').onclick = () => saveSettings({ panel: false })
 document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey
   const tab = App.active
-  if (e.key === 'Escape' && !$('.modal-back') && !$('.menu') && !e.target.closest?.('.editor')) {
+  if (e.key === 'Escape' && !$('.modal-back') && !$('.menu') && (e.target === input || !e.target.closest?.('input, textarea, select, [contenteditable], .editor, .term'))) {
     if (!$('#findbar').hidden) return closeFind()
     if (tab?.busy) api.control(tab.id, 'interrupt')
     else if (input.value && e.target === input && Date.now() - (App.lastEsc || 0) < 500) { rememberPrompt(input.value); App.setComposer('') }

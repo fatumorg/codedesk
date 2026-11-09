@@ -76,7 +76,7 @@ class Tab {
     this.sessionId = sessionId || null
     this.messages.replaceChildren()
     this.tools.clear(); this.changes.clear(); this.tasks.clear(); this.todos = []
-    this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0; this.routed = false
+    this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0; this.routed = false; this.wakeAt = 0
     this.permCards.clear()
     this.accountPick = null
     this.title = 'New conversation'
@@ -225,6 +225,10 @@ class Tab {
 
   handle(m) {
     if (!m.history) this.lastActive = Date.now()
+    if (!m.history && m.type === 'assistant') for (const b of m.message?.content || []) {
+      if (b.name === 'ScheduleWakeup') this.wakeAt = b.input?.stop ? 0 : Date.now() + (Number(b.input?.delaySeconds) || 0) * 1000 + 60000
+      else if (b.name === 'CronCreate') this.wakeAt = Infinity
+    }
     this.dispatch(m)
     if (m.uuid && !m.parent_tool_use_id && (m.type === 'assistant' || m.type === 'user')) this.lastUuid = m.uuid
   }
@@ -532,7 +536,7 @@ class Tab {
   }
 
   tick() {
-    const idle = this.live && !this.busy && !this.permissions && !this.resumeAt && Date.now() - this.lastActive > IDLE_STOP
+    const idle = this.live && !this.busy && !this.permissions && !this.resumeAt && !(this.wakeAt > Date.now()) && Date.now() - this.lastActive > IDLE_STOP
     if (idle && ![...this.tasks.values()].some(t => t.status === 'running')) { api.stop(this.id); this.live = false }
     if (!this.resumeAt) return
     if (this.account !== this.resumeAccount && Date.now() >= (this.recheckAfter || 0)) return this.recheckResume()
