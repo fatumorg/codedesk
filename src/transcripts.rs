@@ -178,8 +178,8 @@ pub fn messages(root: &Path, id: &str, cwd: Option<&str>) -> Vec<Value> {
     chain
         .into_iter()
         .rev()
-        .filter(|e| (e["type"] == "user" || e["type"] == "assistant") && e["isMeta"] != true)
-        .map(|e| json!({ "type": e["type"], "uuid": e["uuid"], "session_id": id, "message": e["message"], "parent_tool_use_id": null }))
+        .filter(|e| (e["type"] == "user" || e["type"] == "assistant") && e["isMeta"] != true && e["origin"]["kind"].as_str().is_none_or(|k| k == "human"))
+        .map(|e| json!({ "type": e["type"], "uuid": e["uuid"], "session_id": id, "message": e["message"], "parent_tool_use_id": null, "compact": e["isCompactSummary"] == true }))
         .collect()
 }
 
@@ -270,7 +270,8 @@ mod tests {
             line(json!({ "type": "progress", "uuid": "p1", "parentUuid": "a1", "sessionId": A })),
             line(json!({ "type": "user", "uuid": "u2", "parentUuid": "p1", "sessionId": A, "message": { "role": "user", "content": "second" } })),
             line(json!({ "type": "user", "uuid": "m1", "parentUuid": "u2", "isMeta": true, "sessionId": A, "message": { "role": "user", "content": "meta" } })),
-            line(json!({ "type": "assistant", "uuid": "a2", "parentUuid": "m1", "sessionId": A, "message": { "role": "assistant", "content": [{ "type": "text", "text": "done" }] } })),
+            line(json!({ "type": "user", "uuid": "n1", "parentUuid": "m1", "origin": { "kind": "task-notification" }, "sessionId": A, "message": { "role": "user", "content": "<task-notification>x</task-notification>" } })),
+            line(json!({ "type": "assistant", "uuid": "a2", "parentUuid": "n1", "sessionId": A, "message": { "role": "assistant", "content": [{ "type": "text", "text": "done" }] } })),
             line(json!({ "type": "last-prompt", "lastPrompt": "second", "sessionId": A })),
         ]
         .concat();

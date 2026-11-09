@@ -650,7 +650,9 @@ function renderStatus(tab) {
   $('#mode-chip').title = `${mode.label} (Shift+Tab to switch)`
   const working = tab.busy && !tab.permissions
   if (working) $('#st-msg').replaceChildren('Working… ', liveTime(tab.busySince, true), tab.turnTokens ? ` · ↓ ${fmtTokens(tab.turnTokens)} tokens` : '', ' · Esc to stop')
-  else $('#st-msg').textContent = tab.busy ? 'Waiting for you' : tab.statusMsg || ''
+  else $('#st-msg').textContent = tab.busy ? 'Waiting for you'
+    : tab.live && tab.bg.length ? `${tab.bg.length} background task${tab.bg.length === 1 ? '' : 's'} running · Claude continues when ${tab.bg.length === 1 ? 'it finishes' : 'they finish'}`
+    : tab.statusMsg || ''
   $('#st-msg').classList.toggle('working', working)
   $('#st-line').textContent = tab.statusLine || ''
   $('#st-cost').textContent = tab.cost ? `$${tab.cost.toFixed(tab.cost < 1 ? 3 : 2)}` : ''

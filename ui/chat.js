@@ -21,6 +21,10 @@ const TOOL_ICONS = {
   TodoWrite: 'list-checks', Skill: 'sparkle', ExitPlanMode: 'list-checks', AskUserQuestion: 'chat-circle',
 }
 const stripAnsi = s => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+const INTERRUPTED = /^\[Request interrupted by user/
+const cleanResult = s => s.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').replace(/<\/?tool_use_error>/g, '')
+const agentReport = s => /^Async agent launched/.test(s) ? 'Running in the background. Claude continues when it reports back.'
+  : s.replace(/^[\s\S]*?The report follows:\n/, '').replace(/\nagentId: [\s\S]*$/, '').replace(/<tools-used-before-summary>[\s\S]*?<\/tools-used-before-summary>/g, '').replace(/^  /gm, '')
 
 let tabSeq = 0
 
@@ -43,6 +47,7 @@ class Tab {
     this.tools = new Map()
     this.changes = new Map()
     this.tasks = new Map()
+    this.bg = []
     this.todos = []
     this.cost = 0
     this.context = null
@@ -75,7 +80,7 @@ class Tab {
     this.live = false
     this.sessionId = sessionId || null
     this.messages.replaceChildren()
-    this.tools.clear(); this.changes.clear(); this.tasks.clear(); this.todos = []
+    this.tools.clear(); this.changes.clear(); this.tasks.clear(); this.bg = []; this.todos = []
     this.cost = 0; this.context = null; this.lastUuid = null; this.liveText = null; this.permissions = 0; this.routed = false; this.wakeAt = 0
     this.permCards.clear()
     this.accountPick = null
@@ -289,7 +294,11 @@ class Tab {
         break
       case 'local_command_output': this.add(md(m.content)); break
       case 'compact_boundary': this.add(el('div', 'divider', el('span', '', 'Conversation compacted'))); break
-      case 'status': if (m.status === 'compacting') App.status(this, 'Compacting conversation…'); break
+      case 'status':
+        if (m.status === 'compacting') App.status(this, 'Compacting conversation…')
+        else if (m.status === 'requesting' && !parent && !m.history) this.setBusy(true)
+        break
+      case 'background_tasks_changed': this.bg = m.tasks || []; App.tabChanged(this); break
       case 'api_retry': App.status(this, `API error, retrying (attempt ${m.attempt ?? '?'})…`); break
       case 'notification': if (m.message || m.text) this.add(el('div', 'notice', icon('bell'), m.message || m.text)); break
       case 'permission_denied': this.add(el('div', 'notice', icon('x'), `Denied ${m.tool_name}`), parent); break
@@ -336,6 +345,7 @@ class Tab {
       if (m.error === 'authentication_failed') this.loginPrompt()
     }
     for (const b of m.message.content || []) {
+      if (b.type === 'text' && m.message.model === '<synthetic>' && b.text === 'No response requested.') continue
       if (b.type === 'text' && b.text.trim()) {
         const body = md(b.text)
         if (this.liveText && !parent) {
@@ -363,13 +373,18 @@ class Tab {
     const c = m.message.content
     const results = Array.isArray(c) ? c.filter(b => b.type === 'tool_result') : []
     for (const r of results) this.toolResult(r, m.tool_use_result ?? m.toolUseResult)
-    if (m.history && !parent && !results.length) this.userBubble(c, m.uuid)
+    if (parent || results.length) return
+    const text = typeof c === 'string' ? c : c?.find(b => b.type === 'text')?.text || ''
+    if (INTERRUPTED.test(text)) this.add(el('div', 'notice', icon('stop'), 'Stopped'))
+    else if (m.compact) this.add(el('div', 'divider', el('span', '', 'Conversation compacted')))
+    else if (m.history) this.userBubble(c, m.uuid)
   }
 
   result(m) {
     this.setBusy(false)
     if (engineOf(this.model) !== 'local') this.cost = m.total_cost_usd || this.cost
-    App.status(this, `Done in ${dur(m.duration_ms)} · ${m.num_turns} turn${m.num_turns === 1 ? '' : 's'}`)
+    const stopped = /^aborted/.test(m.terminal_reason || '')
+    App.status(this, stopped ? 'Stopped' : `Done in ${dur(m.duration_ms)} · ${m.num_turns} turn${m.num_turns === 1 ? '' : 's'}`)
     const limitText = /hit your (usage )?limit|usage limit reached|limit reached/i.test(m.result || '')
     if (this.limited || limitText) {
       const at = this.limited > 0 ? this.limited : 0, acct = this.startedAccount || 'system'
@@ -377,8 +392,8 @@ class Tab {
       this.autoSwitch().catch(() => false).then(local => local === true ? settings.autoContinue && this.send(Tab.CONTINUE_LOCAL) : !local && this.scheduleResume(at, false, acct))
     } else if (m.subtype === 'error_max_turns') {
       this.add(el('div', 'notice warn', icon('gauge'), 'Stopped after the step limit (Settings → Usage). Send a message to keep going.'))
-    } else if (m.subtype !== 'success' || m.is_error) {
-      const text = m.result || (m.errors || []).join('\n') || m.subtype.replace(/_/g, ' ')
+    } else if (!stopped && (m.subtype !== 'success' || m.is_error)) {
+      const text = m.result || (m.errors || []).filter(e => !/^\[ede_diagnostic\]/.test(e)).join('\n') || (m.terminal_reason || m.subtype).replace(/_/g, ' ')
       this.add(el('div', 'notice err', icon('warning'), text))
       if (/log ?in|auth|credential|api key/i.test(text)) this.loginPrompt()
     }
@@ -386,6 +401,7 @@ class Tab {
     this.refreshStatusLine()
     App.refreshUsage(this)
     App.refreshSessions()
+    if (stopped || this.bg.length) return
     const last = $$('.assistant', this.messages).pop()?.innerText?.split('\n')[0]?.slice(0, 140)
     notify(`${this.name}: Claude finished`, last || 'Done')
     if (settings.sounds && !m.history) chime()
@@ -537,7 +553,7 @@ class Tab {
 
   tick() {
     const idle = this.live && !this.busy && !this.permissions && !this.resumeAt && !(this.wakeAt > Date.now()) && Date.now() - this.lastActive > IDLE_STOP
-    if (idle && ![...this.tasks.values()].some(t => t.status === 'running')) { api.stop(this.id); this.live = false }
+    if (idle && !this.bg.length && ![...this.tasks.values()].some(t => t.status === 'running')) { api.stop(this.id); this.live = false }
     if (!this.resumeAt) return
     if (this.account !== this.resumeAccount && Date.now() >= (this.recheckAfter || 0)) return this.recheckResume()
     if (Date.now() < this.resumeAt) return this.renderResume()
@@ -606,11 +622,13 @@ class Tab {
     for (const p of parts) {
       if (p.type === 'text') {
         let t = p.text
-        if (/^<(local-command-caveat|system-reminder)/.test(t)) continue
+        if (/^\s*<(local-command-caveat|system-reminder|task-notification)/.test(t)) continue
+        t = t.replace(/<(system-reminder|ide_opened_file|ide_selection)>[\s\S]*?<\/\1>/g, '')
         const bash = t.match(/<bash-input>([\s\S]*?)<\/bash-input>/)
         if (bash) { this.bashCard(bash[1], { stdout: t.match(/<bash-stdout>([\s\S]*?)<\/bash-stdout>/)?.[1] || '', stderr: t.match(/<bash-stderr>([\s\S]*?)<\/bash-stderr>/)?.[1] || '' }); return }
-        t = t.replace(/<command-(name|args)>([\s\S]*?)<\/command-\1>/g, '$2 ').replace(/<command-message>[\s\S]*?<\/command-message>/g, '')
-          .replace(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/g, '$1').trim()
+        const cmd = t.match(/<command-name>([\s\S]*?)<\/command-name>/)
+        if (cmd) t = cmd[1] + ' ' + (t.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1] || '')
+        t = t.replace(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/g, '$1').trim()
         text += t
         if (t) d.append(el('div', 'user-text', t))
       } else if (p.type === 'image') {
@@ -821,7 +839,8 @@ class Tab {
       Panels.refresh('changes')
     }
     const parts = typeof r.content === 'string' ? [{ type: 'text', text: r.content }] : r.content || []
-    const text = parts.filter(p => p.type === 'text').map(p => p.text).join('\n')
+    const raw = cleanResult(parts.filter(p => p.type === 'text').map(p => p.text).join('\n'))
+    const text = name === 'Task' || name === 'Agent' ? agentReport(raw) : raw
     if (name === 'Task' || name === 'Agent') { if (text.trim()) body.append(el('div', 'agent-result', md(text))); card.open = false }
     else if (['WebSearch', 'WebFetch'].includes(name) && !r.is_error) body.append(md(text.slice(0, 30000)))
     else if (name === 'Read' && !r.is_error) {

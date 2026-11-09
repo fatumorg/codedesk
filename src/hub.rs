@@ -113,6 +113,8 @@ impl Entry {
                         s.session_id = m["session_id"].as_str().map(String::from);
                     } else if m["type"] == "result" {
                         s.busy = false;
+                    } else if m["type"] == "system" && m["subtype"] == "status" && m["status"] == "requesting" {
+                        s.busy = true;
                     }
                 }
                 _ => {}
