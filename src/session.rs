@@ -492,6 +492,11 @@ fn deliver(s: &Session, msg: Value) {
     if let (Some(o), Some(src)) = (m.as_object_mut(), msg.as_object()) {
         o.extend(src.clone());
     }
+    if msg["shouldQuery"] != false {
+        let mut echo = m.clone();
+        echo["echo"] = json!(true);
+        s.entry.emit("claude:message", json!({ "msg": echo }));
+    }
     match &s.engine {
         Engine::Claude { proc, .. } => {
             if let Some(p) = proc.get() {
@@ -711,6 +716,8 @@ mod tests {
         assert_eq!(control(&c, &tab, "getContextUsage", vec![]).await.unwrap()["percentage"], 12);
         assert!(control(&c, &tab, "setModel", vec![json!("sonnet")]).await.is_err());
         send(&c, &tab, json!({ "message": { "role": "user", "content": "hi" } }));
+        let echo = wait_for(&mut rx, "claude:message").await;
+        assert_eq!((&echo["msg"]["echo"], &echo["msg"]["message"]["content"]), (&json!(true), &json!("hi")));
         let init = wait_for(&mut rx, "claude:message").await;
         assert_eq!(init["msg"]["session_id"], "S1");
         let perm = wait_for(&mut rx, "claude:permission").await;

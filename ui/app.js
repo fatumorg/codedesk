@@ -1541,7 +1541,7 @@ const toTab = (id, fn, msg) => {
   else fn(t)
 }
 api.on('claude:message', ({ tab, msg }) => toTab(tab, t => {
-  if (msg.type === 'assistant' && t.liveText && !(msg.message?.content || []).some(b => b.type === 'text' && b.text.trim())) {
+  if (msg.type === 'assistant' && !msg.parent_tool_use_id && t.liveText && !(msg.message?.content || []).some(b => b.type === 'text' && b.text.trim())) {
     cancelAnimationFrame(t.liveText.raf)
     t.liveText.node.closest('.msg')?.remove()
     t.liveText = null

@@ -207,8 +207,8 @@ class Tab {
     this.view.querySelector('.empty')?.remove()
     const wrap = el('div', 'msg' + (anim && !this.loadingHistory ? ' anim' : ''), node)
     const parent = parentToolId && this.tools.get(parentToolId)
-    ;(parent ? parent.sub : this.messages).append(wrap)
-    if (parent) parent.sub.hidden = false
+    if (parent) { parent.sub.append(wrap); parent.sub.hidden = false }
+    else this.messages.insertBefore(wrap, wrap.querySelector('.queued') ? null : this.messages.querySelector('.queued')?.closest('.msg') || null)
     return wrap
   }
 
@@ -377,7 +377,7 @@ class Tab {
     const text = typeof c === 'string' ? c : c?.find(b => b.type === 'text')?.text || ''
     if (INTERRUPTED.test(text)) this.add(el('div', 'notice', icon('stop'), 'Stopped'))
     else if (m.compact) this.add(el('div', 'divider', el('span', '', 'Conversation compacted')))
-    else if (m.history) this.userBubble(c, m.uuid)
+    else if (m.history || (m.echo && !this.messages.querySelector(`[data-uuid="${m.uuid}"]`))) this.userBubble(c, m.uuid, { queued: !m.history && this.busy })
   }
 
   result(m) {
