@@ -163,23 +163,33 @@ fn entries(f: &Path) -> Vec<Value> {
 pub fn messages(root: &Path, id: &str, cwd: Option<&str>) -> Vec<Value> {
     let Some(f) = find(root, id, cwd) else { return vec![] };
     let all = entries(&f);
-    let by_id: HashMap<&str, &Value> = all.iter().map(|e| (e["uuid"].as_str().unwrap(), e)).collect();
-    let Some(leaf) = all.iter().rev().find(|e| e["isSidechain"] != true && (e["type"] == "user" || e["type"] == "assistant")) else { return vec![] };
+    let by_id: HashMap<&str, usize> = all.iter().enumerate().map(|(i, e)| (e["uuid"].as_str().unwrap(), i)).collect();
+    let main = |e: &Value| e["isSidechain"] != true && (e["type"] == "user" || e["type"] == "assistant");
+    let Some(leaf) = all.iter().rposition(main) else { return vec![] };
     let mut chain = vec![];
     let mut seen = HashSet::new();
     let mut cur = Some(leaf);
-    while let Some(e) = cur {
-        if !seen.insert(e["uuid"].as_str().unwrap()) {
+    while let Some(i) = cur {
+        if !seen.insert(i) {
             break;
         }
+        let e = &all[i];
         chain.push(e);
-        cur = e["parentUuid"].as_str().and_then(|p| by_id.get(p).copied());
+        let at = |k: &str| e[k].as_str().and_then(|p| by_id.get(p).copied());
+        cur = at("parentUuid").or_else(|| at("logicalParentUuid")).or_else(|| (e["subtype"] == "compact_boundary").then(|| all[..i].iter().rposition(main)).flatten());
     }
+    let human = |e: &Value| e["origin"]["kind"].as_str().is_none_or(|k| k == "human");
     chain
         .into_iter()
         .rev()
-        .filter(|e| (e["type"] == "user" || e["type"] == "assistant") && e["isMeta"] != true && e["origin"]["kind"].as_str().is_none_or(|k| k == "human"))
-        .map(|e| json!({ "type": e["type"], "uuid": e["uuid"], "session_id": id, "message": e["message"], "parent_tool_use_id": null, "compact": e["isCompactSummary"] == true }))
+        .filter_map(|e| {
+            let a = &e["attachment"];
+            if a["type"] == "queued_command" && a["commandMode"] == "prompt" && human(a) {
+                return Some(json!({ "type": "user", "uuid": e["uuid"], "session_id": id, "message": { "role": "user", "content": a["prompt"] }, "parent_tool_use_id": null, "compact": false }));
+            }
+            ((e["type"] == "user" || e["type"] == "assistant") && e["isMeta"] != true && human(e))
+                .then(|| json!({ "type": e["type"], "uuid": e["uuid"], "session_id": id, "message": e["message"], "parent_tool_use_id": null, "compact": e["isCompactSummary"] == true }))
+        })
         .collect()
 }
 
@@ -330,6 +340,30 @@ mod tests {
         assert!(m[0]["parent_tool_use_id"].is_null());
         assert_eq!(messages(root.path(), A, None).len(), 4);
         assert!(messages(root.path(), "nope", None).is_empty());
+    }
+
+    #[test]
+    fn messages_keep_history_before_a_compaction_and_prompts_queued_mid_turn() {
+        let root = tempfile::tempdir().unwrap();
+        let f = fixture(root.path(), "/w/p");
+        use std::io::Write;
+        let more = [
+            line(json!({ "type": "attachment", "uuid": "q1", "parentUuid": "a2", "sessionId": A, "attachment": { "type": "queued_command", "commandMode": "prompt", "origin": { "kind": "human" }, "prompt": [{ "type": "text", "text": "while busy" }] } })),
+            line(json!({ "type": "attachment", "uuid": "q2", "parentUuid": "q1", "sessionId": A, "attachment": { "type": "queued_command", "commandMode": "prompt", "origin": { "kind": "peer" }, "prompt": "from a peer" } })),
+            line(json!({ "type": "system", "subtype": "compact_boundary", "uuid": "c1", "parentUuid": null, "logicalParentUuid": "q2", "sessionId": A })),
+            line(json!({ "type": "user", "uuid": "c2", "parentUuid": "c1", "isCompactSummary": true, "sessionId": A, "message": { "role": "user", "content": "summary" } })),
+            line(json!({ "type": "assistant", "uuid": "a3", "parentUuid": "c2", "sessionId": A, "message": { "role": "assistant", "content": [{ "type": "text", "text": "after" }] } })),
+            line(json!({ "type": "system", "subtype": "compact_boundary", "uuid": "c3", "parentUuid": null, "sessionId": A })),
+            line(json!({ "type": "assistant", "uuid": "a4", "parentUuid": "c3", "sessionId": A, "message": { "role": "assistant", "content": [{ "type": "text", "text": "last" }] } })),
+        ]
+        .concat();
+        std::fs::OpenOptions::new().append(true).open(&f).unwrap().write_all(more.as_bytes()).unwrap();
+        let m = messages(root.path(), A, Some("/w/p"));
+        let ids: Vec<_> = m.iter().map(|m| m["uuid"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["u1", "a1", "u2", "a2", "q1", "c2", "a3", "a4"]);
+        assert_eq!(m[4]["type"], "user");
+        assert_eq!(m[4]["message"]["content"][0]["text"], "while busy");
+        assert_eq!(m[5]["compact"], true);
     }
 
     #[test]
