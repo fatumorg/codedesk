@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- When Auto mode refuses an action, the conversation says so and offers to continue in Ask mode instead of ending as if the work were done.
+- A reply that is still streaming no longer disappears while a background agent is working.
+- A message sent while Claude is working stays below the output until Claude picks it up, so it is no longer buried above later output.
+- Messages sent from another window or device attached to the same conversation appear right away.
+
 ## 0.2.1
 
 - Reopening a conversation shows everything from before a compaction instead of only the part after it.
