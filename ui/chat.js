@@ -397,6 +397,12 @@ class Tab {
       this.add(el('div', 'notice err', icon('warning'), text))
       if (/log ?in|auth|credential|api key/i.test(text)) this.loginPrompt()
     }
+    if (this.blocked) {
+      this.blocked = false
+      App.status(this, 'Blocked by Auto mode')
+      this.add(el('div', 'notice warn', icon('hand'), 'Auto mode refused an action, so Claude could not finish. Switch to Ask before edits to approve it yourself.',
+        button('Ask and continue', () => { setMode(this, 'default'); this.send('continue') }, 'ghost sm')))
+    }
     this.refreshContext()
     this.refreshStatusLine()
     App.refreshUsage(this)
@@ -826,6 +832,7 @@ class Tab {
     const { card, body, block } = t
     card.classList.remove('running')
     if (r.is_error) card.classList.add('failed')
+    if (r.is_error && !this.loadingHistory && /denied by the Claude Code auto mode classifier/.test(typeof r.content === 'string' ? r.content : JSON.stringify(r.content))) this.blocked = true
     const name = block.name
     const patch = extra?.structuredPatch
     if (patch?.length && ['Edit', 'MultiEdit', 'Write'].includes(name)) {
