@@ -111,7 +111,7 @@ pub struct Proc {
 pub fn sdk_env(extra: HashMap<String, String>) -> HashMap<String, String> {
     let mut env: HashMap<String, String> = std::env::vars().filter(|(k, _)| k != "NODE_OPTIONS" && k != "DEBUG").collect();
     env.extend(extra);
-    env.entry("CLAUDE_CODE_ENTRYPOINT".into()).or_insert_with(|| "sdk-ts".into());
+    env.insert("CLAUDE_CODE_ENTRYPOINT".into(), "codedesk".into());
     env.insert("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".into(), "true".into());
     env
 }
@@ -325,6 +325,12 @@ mod tests {
         assert!(!env.contains_key("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"));
         assert_eq!(turns, None);
         assert!(tools.is_empty());
+    }
+
+    #[test]
+    fn sessions_use_a_non_sdk_entrypoint_so_claude_resume_lists_them() {
+        let env = sdk_env(HashMap::from([("CLAUDE_CODE_ENTRYPOINT".to_string(), "sdk-ts".to_string())]));
+        assert_eq!(env["CLAUDE_CODE_ENTRYPOINT"], "codedesk");
     }
 
     async fn spawn_fake(mode: &str, out: &std::path::Path) -> (Arc<Proc>, mpsc::UnboundedReceiver<Event>) {
