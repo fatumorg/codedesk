@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Conversations started in Codedesk now show up in `claude --resume` in the terminal, and the other way round.
+
 ## 0.2.2
 
 - When Auto mode refuses an action, the conversation says so and offers to continue in Ask mode instead of ending as if the work were done.

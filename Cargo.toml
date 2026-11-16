@@ -1,6 +1,6 @@
 [package]
 name = "codedesk"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "Codedesk: a desktop workspace for Claude Code"
 license = "MIT"
